@@ -4,8 +4,19 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ethersphere/node-funder/pkg/funder"
+)
 
 func main() {
-	fmt.Printf(`hello`)
+	cfg, err := funder.ParseConfig()
+	if err != nil {
+		panic(fmt.Errorf("failed parsing config: %w", err))
+	}
+
+	if err = funder.FundAllNodes(cfg); err != nil {
+		panic(fmt.Errorf("error while funding nodes: %w", err))
+	}
 }
