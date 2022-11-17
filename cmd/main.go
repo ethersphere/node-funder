@@ -5,7 +5,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/ethersphere/node-funder/pkg/funder"
 )
@@ -13,10 +13,10 @@ import (
 func main() {
 	cfg, err := funder.ParseConfig()
 	if err != nil {
-		panic(fmt.Errorf("failed parsing config: %w", err))
+		log.Panicf("failed parsing config: %v", err)
 	}
 
 	if err = funder.FundAllNodes(cfg); err != nil {
-		panic(fmt.Errorf("error while funding nodes: %w", err))
+		log.Panicf("error while funding nodes: %v", err)
 	}
 }
