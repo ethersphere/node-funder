@@ -40,6 +40,8 @@ linters:
 linters-settings:
   govet:
     enable-all: true
+    disable:
+      - fieldalignment
   goheader:
     values:
       regexp:
