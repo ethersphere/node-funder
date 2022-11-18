@@ -74,21 +74,8 @@ func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, err
 	return ethclient.NewClient(rpcClient), nil
 }
 
-type Node struct {
-	Name      string
-	BeeTokens BeeTokens
-}
-
-type BeeTokens struct {
-	EthAddress      string
-	ChainID         int64
-	ContractAddress string
-	ETH             *big.Int
-	BZZ             *big.Int
-}
-
 type fundNodeResp struct {
-	node Node
+	node kube.Node
 	err  error
 }
 
@@ -102,7 +89,7 @@ func fundNode(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node Node,
+	node kube.Node,
 	fundNodeRespC chan<- fundNodeResp,
 ) {
 	fundRespC := make(chan error, 2)
@@ -133,24 +120,24 @@ func fundNodeNativeCoin(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node Node,
+	node kube.Node,
 	respC chan<- error,
 ) {
 	respC <- func() error {
-		cid := node.BeeTokens.ChainID
+		cid := node.WalletInfo.ChainID
 
 		token, err := wallet.NativeCoinForChain(cid)
 		if err != nil {
 			return fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
 		}
 
-		topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, node.BeeTokens.ETH, token.Decimals)
+		topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, node.WalletInfo.NativeCoin, token.Decimals)
 		if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
 			// Node has enough in wallet, top up is not needed
 			return nil
 		}
 
-		address := common.HexToAddress(node.BeeTokens.EthAddress)
+		address := common.HexToAddress(node.WalletInfo.Address)
 
 		err = fundingWallet.TransferNative(ctx, cid, address, topUpAmount)
 		if err != nil {
@@ -165,24 +152,24 @@ func fundNodeSwarmToken(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node Node,
+	node kube.Node,
 	respC chan<- error,
 ) {
 	respC <- func() error {
-		cid := node.BeeTokens.ChainID
+		cid := node.WalletInfo.ChainID
 
 		token, err := wallet.SwarmTokenForChain(cid)
 		if err != nil {
 			return fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
 		}
 
-		topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, node.BeeTokens.BZZ, token.Decimals)
+		topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, node.WalletInfo.SwarmToken, token.Decimals)
 		if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
 			// Node has enough in wallet, top up is not needed
 			return nil
 		}
 
-		address := common.HexToAddress(node.BeeTokens.EthAddress)
+		address := common.HexToAddress(node.WalletInfo.Address)
 
 		err = fundingWallet.TransferERC20(ctx, cid, address, topUpAmount, token)
 		if err != nil {
