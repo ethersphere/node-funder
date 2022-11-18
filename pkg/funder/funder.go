@@ -36,7 +36,7 @@ func FundAllNodes(cfg Config) error {
 
 	log.Printf("using wallet address: %s", key)
 
-	ethClient, err := makeEthClient(ctx, cfg.EthNodeEndpoint)
+	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
 	if err != nil {
 		return fmt.Errorf("failed make eth client: %w", err)
 	}
@@ -176,7 +176,7 @@ func fundNodeSwarmToken(
 			return fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
 		}
 
-		topUpAmount := CalcTopUpAmount(minAmounts.BZZToken, node.BeeTokens.BZZ, token.Decimals)
+		topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, node.BeeTokens.BZZ, token.Decimals)
 		if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
 			// Node has enough in wallet, top up is not needed
 			return nil

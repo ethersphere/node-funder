@@ -10,30 +10,31 @@ import (
 )
 
 type Config struct {
-	EthNodeEndpoint string
-	Namespace       string
-	MinAmounts      MinAmounts
+	ChainNodeEndpoint string
+	Namespace         string
+	MinAmounts        MinAmounts
 }
 
 type MinAmounts struct {
 	NativeCoin float64 // on mainnet this is ETH
-	BZZToken   float64 // on mainnet this is BZZ
+	SwarmToken float64 // on mainnet this is BZZ
 }
 
 func ParseConfig() (Config, error) {
 	cfg := Config{}
 
 	flag.StringVar(&cfg.Namespace, "namespace", "", "kuberneties namespace")
-	flag.Float64Var(&cfg.MinAmounts.NativeCoin, "minNativ", 0, "specifies min amout of ETH tokens nodes should have")
-	flag.Float64Var(&cfg.MinAmounts.BZZToken, "minBzz", 0, "specifies min amout of BZZ tokens nodes should have")
+	flag.StringVar(&cfg.ChainNodeEndpoint, "chainNodeEndpoint", "", "endpoint to chain node")
+	flag.Float64Var(&cfg.MinAmounts.NativeCoin, "minNative", 0, "specifies min amout of chain native coins (ETH) nodes should have")
+	flag.Float64Var(&cfg.MinAmounts.SwarmToken, "minSwarm", 0, "specifies min amout of swarm tokens (BZZ) nodes should have")
 	flag.Parse()
 
 	if cfg.Namespace == "" {
 		return cfg, fmt.Errorf("namespace must be set")
 	}
 
-	if cfg.EthNodeEndpoint == "" {
-		return cfg, fmt.Errorf("url to eth node must be set")
+	if cfg.ChainNodeEndpoint == "" {
+		return cfg, fmt.Errorf("url to chain node must be set")
 	}
 
 	return cfg, nil
