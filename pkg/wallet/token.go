@@ -12,33 +12,35 @@ import (
 
 type Token struct {
 	Contract common.Address
-	Name     string
+	Symbol   string
 	Decimals int
 }
 
 var chainToSwarmTokenMap = map[int64]Token{
-	// Goerli
+	// Goerli (testnet)
 	5: {
-		Contract: common.HexToAddress(""), // TODO
-		Decimals: 18,                      // TODO
+		Contract: common.HexToAddress("0x2aC3c1d3e24b45c6C310534Bc2Dd84B5ed576335"),
+		Symbol:   "gBZZ",
+		Decimals: 16,
 	},
 
-	// Xdai
+	// Gnosis Chain
 	100: {
-		Contract: common.HexToAddress(""), // TODO
-		Decimals: 18,                      // TODO
+		Contract: common.HexToAddress("0xdBF3Ea6F5beE45c02255B2c26a16F300502F68da"),
+		Symbol:   "xBZZ",
+		Decimals: 16,
 	},
 }
 
 var chainToNativeCoinMap = map[int64]Token{
-	// Goerli
+	// Goerli (testnet)
 	5: {
-		Decimals: 18,
+		Decimals: 16,
 	},
 
-	// Xdai
+	// Gnosis Chain
 	100: {
-		Decimals: 18,
+		Decimals: 16,
 	},
 }
 
