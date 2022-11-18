@@ -84,6 +84,7 @@ func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.A
 	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKey)
+
 	nonce, err := w.client.PendingNonceAt(ctx, fromAddress)
 	if err != nil {
 		return fmt.Errorf("failed to make nonce, %w", err)
