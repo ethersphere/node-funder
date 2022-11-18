@@ -134,10 +134,9 @@ func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error
 	}
 
 	tokens := struct {
-		Bzz             string `json:"bzz"`
-		XDai            string `json:"xDai"` // on mainnet this is NativeCoin and in testnet this is xDai
-		ChainID         int    `json:"chainID"`
-		ContractAddress string `json:"contractAddress"`
+		Bzz     string `json:"bzz"`
+		XDai    string `json:"xDai"`
+		ChainID int    `json:"chainID"`
 	}{}
 	if err := json.Unmarshal(response, &tokens); err != nil {
 		log.Printf("get bee wallet failed with address %s, error %v", nodeAddress, err)
