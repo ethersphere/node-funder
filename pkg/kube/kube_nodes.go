@@ -8,6 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
+	"net/http"
+	"os"
+
 	"github.com/emicklei/go-restful/v3/log"
 	"github.com/ethersphere/node-funder/pkg/util"
 	v1 "k8s.io/api/core/v1"
@@ -17,9 +21,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-	"math/big"
-	"net/http"
-	"os"
 )
 
 const (
@@ -32,16 +33,16 @@ type NamespaceNodes struct {
 	Nodes []Node
 }
 type Node struct {
-	Name      string
-	Ip        string
-	BeeTokens BeeTokens
+	Name       string
+	IP         string
+	WalletInfo WalletInfo
 }
 
-type BeeTokens struct {
+type WalletInfo struct {
 	EthAddress string
 	ChainID    int
 	NativeCoin *big.Int
-	BzzToken   *big.Int
+	SwarmToken *big.Int
 }
 type TokenResponse struct {
 	Node  Node
@@ -49,31 +50,33 @@ type TokenResponse struct {
 }
 
 func NewKube() (*corev1client.CoreV1Client, error) {
-	config, err := GetConfig()
+	config, err := makeConfig()
 	if err != nil {
 		return nil, fmt.Errorf("get configuration failed with error: %w", err)
 	}
 
-	// Create a Kubernetes core/v1 client.
 	coreClient, err := corev1client.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating Kubernetes client failed with error: %w", err)
 	}
+
 	return coreClient, nil
 }
 
-func GetConfig() (*rest.Config, error) {
+func makeConfig() (*rest.Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("obtaining user's home dir: %w", err)
 	}
+
 	kubeconfigPath := home + "/.kube/config"
+
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
 		&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}).ClientConfig()
 }
 
-func GetNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace string) (*NamespaceNodes, error) {
+func FetchNamespaceNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace string) (*NamespaceNodes, error) {
 	// List all Pods in our current Namespace.
 	pods, err := kube.Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -84,14 +87,20 @@ func GetNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace
 
 	for _, pod := range pods.Items {
 		go func(pod v1.Pod) {
-			beeTokens, err := GetTokens(ctx, pod.Status.PodIP)
-			tokenResponseC <- TokenResponse{Node: Node{
-				Name:      pod.Name,
-				Ip:        pod.Status.PodIP,
-				BeeTokens: beeTokens}, error: err}
+			wi, err := FetchWalletInfo(ctx, pod.Status.PodIP)
+			tokenResponseC <- TokenResponse{
+				Node: Node{
+					Name:       pod.Name,
+					IP:         pod.Status.PodIP,
+					WalletInfo: wi,
+				},
+				error: err,
+			}
 		}(pod)
 	}
+
 	nodes := make([]Node, 0)
+
 	for i := 0; i < len(pods.Items); i++ {
 		res := <-tokenResponseC
 		if res.error == nil {
@@ -105,24 +114,23 @@ func GetNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace
 	}, nil
 }
 
-func GetTokens(ctx context.Context, podAddress string) (BeeTokens, error) {
-
+func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
 	// get eth address
-	response, err := util.SendHTTPRequest(ctx, http.MethodGet, "application/json", fmt.Sprintf("http://%s:1635%s", podAddress, beeAddressEndpoint), nil)
+	response, err := util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeAddressEndpoint), nil)
 	if err != nil {
-		return BeeTokens{}, fmt.Errorf("get bee address failed with error: %w", err)
+		return WalletInfo{}, fmt.Errorf("get bee address failed with error: %w", err)
 	}
 
 	ethAddress := struct {
 		EthereumAddress string `json:"ethereum"`
 	}{}
 	if err = json.Unmarshal(response, &ethAddress); err != nil {
-		return BeeTokens{}, fmt.Errorf("authentication marshal error :%w", err)
+		return WalletInfo{}, fmt.Errorf("authentication marshal error :%w", err)
 	}
 
-	response, err = util.SendHTTPRequest(ctx, http.MethodGet, "application/json", fmt.Sprintf("http://%s:1635%s", podAddress, beeWalletEndpoint), nil)
+	response, err = util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint), nil)
 	if err != nil {
-		return BeeTokens{}, fmt.Errorf("get bee address failed with error: %w", err)
+		return WalletInfo{}, fmt.Errorf("get bee address failed with error: %w", err)
 	}
 
 	tokens := struct {
@@ -132,21 +140,26 @@ func GetTokens(ctx context.Context, podAddress string) (BeeTokens, error) {
 		ContractAddress string `json:"contractAddress"`
 	}{}
 	if err := json.Unmarshal(response, &tokens); err != nil {
-		log.Printf("get bee wallet failed with address %s, error %v", podAddress, err)
-		return BeeTokens{}, fmt.Errorf("authentication marshal error :%w", err)
+		log.Printf("get bee wallet failed with address %s, error %v", nodeAddress, err)
+		return WalletInfo{}, fmt.Errorf("authentication marshal error :%w", err)
 	}
 
-	return BeeTokens{
+	return WalletInfo{
 		EthAddress: ethAddress.EthereumAddress,
 		NativeCoin: StringGweiToEth(tokens.XDai),
-		BzzToken:   StringGweiToEth(tokens.Bzz),
+		SwarmToken: StringGweiToEth(tokens.Bzz),
 		ChainID:    tokens.ChainID,
 	}, nil
+}
+
+func nodeAPIAddress(nodeAddress, endpoint string) string {
+	return fmt.Sprintf("http://%s:1635%s", nodeAddress, endpoint)
 }
 
 // StringGweiToEth converts gwei to eth
 func StringGweiToEth(gwei string) *big.Int {
 	eth := new(big.Int)
 	eth.SetString(gwei, 10)
+
 	return eth
 }

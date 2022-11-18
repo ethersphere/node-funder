@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/ethersphere/node-funder/pkg/funder"
 )
 

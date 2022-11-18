@@ -11,19 +11,21 @@ import (
 	"net/http"
 )
 
-func SendHTTPRequest(ctx context.Context, method, contentType, endpoint string, body io.Reader) ([]byte, error) {
-
+func SendHTTPRequest(ctx context.Context, method, endpoint string, body io.Reader) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Content-Type", contentType)
+
+	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
+
 	defer resp.Body.Close()
 
 	return io.ReadAll(resp.Body)
