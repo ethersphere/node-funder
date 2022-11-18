@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/emicklei/go-restful/v3/log"
 	"github.com/ethersphere/node-funder/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,11 +17,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-	"log"
 	"math/big"
 	"net/http"
 	"os"
-	"sync"
 )
 
 const (
@@ -43,6 +42,10 @@ type BeeTokens struct {
 	ChainID    int
 	NativeCoin *big.Int
 	BzzToken   *big.Int
+}
+type TokenResponse struct {
+	Node  Node
+	error error
 }
 
 func NewKube() (*corev1client.CoreV1Client, error) {
@@ -77,52 +80,49 @@ func GetNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace
 		return nil, fmt.Errorf("listing pod failed with error: %w", err)
 	}
 
-	nodes := make([]Node, 0)
-	var wg sync.WaitGroup
+	tokenResponseC := make(chan TokenResponse, len(pods.Items))
+
 	for _, pod := range pods.Items {
-		wg.Add(1)
 		go func(pod v1.Pod) {
-			defer wg.Done()
 			beeTokens, err := GetTokens(ctx, pod.Status.PodIP)
-			if err != nil {
-				log.Printf("get bee tokens failed with address %s, node %s ,error %v", pod.Status.PodIP, pod.Name, err)
-			}
-			if beeTokens != nil {
-				node := Node{
-					Name:      pod.Name,
-					Ip:        pod.Status.PodIP,
-					BeeTokens: *beeTokens,
-				}
-				nodes = append(nodes, node)
-			}
+			tokenResponseC <- TokenResponse{Node: Node{
+				Name:      pod.Name,
+				Ip:        pod.Status.PodIP,
+				BeeTokens: beeTokens}, error: err}
 		}(pod)
 	}
-	wg.Wait()
+	nodes := make([]Node, 0)
+	for i := 0; i < len(pods.Items); i++ {
+		res := <-tokenResponseC
+		if res.error == nil {
+			nodes = append(nodes, res.Node)
+		}
+	}
+
 	return &NamespaceNodes{
 		Name:  namespace,
 		Nodes: nodes,
 	}, nil
 }
 
-func GetTokens(ctx context.Context, podAddress string) (*BeeTokens, error) {
+func GetTokens(ctx context.Context, podAddress string) (BeeTokens, error) {
 
 	// get eth address
 	response, err := util.SendHTTPRequest(ctx, http.MethodGet, "application/json", fmt.Sprintf("http://%s:1635%s", podAddress, beeAddressEndpoint), nil)
 	if err != nil {
-		return nil, fmt.Errorf("get bee address failed with error: %w", err)
+		return BeeTokens{}, fmt.Errorf("get bee address failed with error: %w", err)
 	}
+
 	ethAddress := struct {
 		EthereumAddress string `json:"ethereum"`
 	}{}
 	if err = json.Unmarshal(response, &ethAddress); err != nil {
-
-		return nil, fmt.Errorf("authentication marshal error :%w", err)
+		return BeeTokens{}, fmt.Errorf("authentication marshal error :%w", err)
 	}
 
-	// get eth address
 	response, err = util.SendHTTPRequest(ctx, http.MethodGet, "application/json", fmt.Sprintf("http://%s:1635%s", podAddress, beeWalletEndpoint), nil)
 	if err != nil {
-		return nil, fmt.Errorf("get bee address failed with error: %w", err)
+		return BeeTokens{}, fmt.Errorf("get bee address failed with error: %w", err)
 	}
 
 	tokens := struct {
@@ -132,9 +132,11 @@ func GetTokens(ctx context.Context, podAddress string) (*BeeTokens, error) {
 		ContractAddress string `json:"contractAddress"`
 	}{}
 	if err := json.Unmarshal(response, &tokens); err != nil {
-		return nil, fmt.Errorf("authentication marshal error :%w", err)
+		log.Printf("get bee wallet failed with address %s, error %v", podAddress, err)
+		return BeeTokens{}, fmt.Errorf("authentication marshal error :%w", err)
 	}
-	return &BeeTokens{
+
+	return BeeTokens{
 		EthAddress: ethAddress.EthereumAddress,
 		NativeCoin: StringGweiToEth(tokens.XDai),
 		BzzToken:   StringGweiToEth(tokens.Bzz),
