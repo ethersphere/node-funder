@@ -24,7 +24,7 @@ func FundAllNodes(cfg Config) error {
 
 	ctx := context.Background()
 
-	key, err := wallet.GetKey()
+	key, err := makeWalletKey(cfg)
 	if err != nil {
 		return fmt.Errorf("failed getting wallet key: %w", err)
 	}
@@ -63,6 +63,14 @@ func FundAllNodes(cfg Config) error {
 	}
 
 	return nil
+}
+
+func makeWalletKey(cfg Config) (wallet.WalletKey, error) {
+	if cfg.WalletKey == "" {
+		return wallet.GenerateKey()
+	}
+
+	return wallet.WalletKey(cfg.WalletKey), nil
 }
 
 func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, error) {
