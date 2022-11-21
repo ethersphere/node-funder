@@ -29,7 +29,6 @@ linters:
     - paralleltest
     - prealloc
     - predeclared
-    - promlinter
     - staticcheck
     - thelper
     - tparallel

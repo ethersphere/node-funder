@@ -39,7 +39,7 @@ type Node struct {
 
 type WalletInfo struct {
 	Address    string
-	ChainID    int
+	ChainID    int64
 	NativeCoin *big.Int
 	SwarmToken *big.Int
 }
@@ -137,7 +137,7 @@ func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error
 	walletResponse := struct {
 		Bzz     string `json:"bzz"`
 		XDai    string `json:"xDai"`
-		ChainID int    `json:"chainID"`
+		ChainID int64  `json:"chainID"`
 	}{}
 	if err := json.Unmarshal(response, &walletResponse); err != nil {
 		return WalletInfo{}, fmt.Errorf("failed to unmarshal wallet response :%w", err)
