@@ -22,7 +22,7 @@ import (
 
 var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
 
-const gasLimit = uint64(21000)
+const gasLimit = uint64(40000)
 
 type Wallet struct {
 	client *ethclient.Client
