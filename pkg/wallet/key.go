@@ -12,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-type WalletKey string
+type Key string
 
-func (k WalletKey) Private() (*ecdsa.PrivateKey, error) {
+func (k Key) Private() (*ecdsa.PrivateKey, error) {
 	privateKey, err := crypto.HexToECDSA(string(k))
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (k WalletKey) Private() (*ecdsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-func (k WalletKey) Public() (*ecdsa.PublicKey, error) {
+func (k Key) Public() (*ecdsa.PublicKey, error) {
 	privateKey, err := k.Private()
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func (k WalletKey) Public() (*ecdsa.PublicKey, error) {
 	return publicKeyECDSA, nil
 }
 
-func GenerateKey() (WalletKey, error) {
+func GenerateKey() (Key, error) {
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
 		return "", err
@@ -46,5 +46,5 @@ func GenerateKey() (WalletKey, error) {
 	privateKeyBytes := crypto.FromECDSA(privateKey)
 	keyStr := hex.EncodeToString(privateKeyBytes)
 
-	return WalletKey(keyStr), nil
+	return Key(keyStr), nil
 }

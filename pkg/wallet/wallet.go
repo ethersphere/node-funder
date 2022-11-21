@@ -26,10 +26,10 @@ const gasLimit = uint64(100000)
 
 type Wallet struct {
 	client *ethclient.Client
-	key    WalletKey
+	key    Key
 }
 
-func New(client *ethclient.Client, key WalletKey) *Wallet {
+func New(client *ethclient.Client, key Key) *Wallet {
 	return &Wallet{
 		client: client,
 		key:    key,

@@ -65,12 +65,12 @@ func FundAllNodes(cfg Config) error {
 	return nil
 }
 
-func makeWalletKey(cfg Config) (wallet.WalletKey, error) {
+func makeWalletKey(cfg Config) (wallet.Key, error) {
 	if cfg.WalletKey == "" {
 		return wallet.GenerateKey()
 	}
 
-	return wallet.WalletKey(cfg.WalletKey), nil
+	return wallet.Key(cfg.WalletKey), nil
 }
 
 func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, error) {
