@@ -70,7 +70,7 @@ func (w *Wallet) TransferERC20(
 		return fmt.Errorf("failed to pack abi, %w", err)
 	}
 
-	err = w.sendTransaction(ctx, cid, token.Contract, big.NewInt(0), callData)
+	err = w.sendTransaction(ctx, cid, token.Contract, nil, callData)
 	if err != nil {
 		return fmt.Errorf("failed to make ERC20 token transfer, %w", err)
 	}
