@@ -22,7 +22,7 @@ import (
 
 var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
 
-const gasLimit = uint64(40000)
+const gasLimit = uint64(100000)
 
 type Wallet struct {
 	client *ethclient.Client
@@ -45,7 +45,12 @@ func (w *Wallet) CainID(ctx context.Context) (int64, error) {
 	return id.Int64(), nil
 }
 
-func (w *Wallet) TransferNative(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int) error {
+func (w *Wallet) TransferNative(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+) error {
 	err := w.sendTransaction(ctx, cid, toAddr, amount, nil)
 	if err != nil {
 		return fmt.Errorf("failed to make native coin transfer, %w", err)
@@ -54,7 +59,12 @@ func (w *Wallet) TransferNative(ctx context.Context, cid int64, toAddr common.Ad
 	return nil
 }
 
-func (w *Wallet) TransferERC20(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int, token Token) error {
+func (w *Wallet) TransferERC20(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+	token Token) error {
 	callData, err := erc20ABI.Pack("transfer", toAddr, amount)
 	if err != nil {
 		return fmt.Errorf("failed to pack abi, %w", err)
@@ -68,7 +78,13 @@ func (w *Wallet) TransferERC20(ctx context.Context, cid int64, toAddr common.Add
 	return nil
 }
 
-func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int, callData []byte) error {
+func (w *Wallet) sendTransaction(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+	callData []byte,
+) error {
 	chainID, err := w.client.NetworkID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get network id, %w", err)
