@@ -64,7 +64,8 @@ func (w *Wallet) TransferERC20(
 	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
-	token Token) error {
+	token Token,
+) error {
 	callData, err := erc20ABI.Pack("transfer", toAddr, amount)
 	if err != nil {
 		return fmt.Errorf("failed to pack abi, %w", err)
