@@ -111,14 +111,14 @@ func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.A
 }
 
 func (w *Wallet) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
-	privateKey, err := crypto.HexToECDSA(string(w.key))
+	privateKey, err := w.key.Private()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
-	if !ok {
-		return nil, nil, fmt.Errorf("failed to get public key from private key")
+	publicKeyECDSA, err := w.key.Public()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return privateKey, publicKeyECDSA, nil

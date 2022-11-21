@@ -5,6 +5,7 @@
 package wallet
 
 import (
+	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -18,6 +19,29 @@ const (
 )
 
 type WalletKey string
+
+func (k WalletKey) Private() (*ecdsa.PrivateKey, error) {
+	privateKey, err := crypto.HexToECDSA(string(k))
+	if err != nil {
+		return nil, err
+	}
+
+	return privateKey, nil
+}
+
+func (k WalletKey) Public() (*ecdsa.PublicKey, error) {
+	privateKey, err := k.Private()
+	if err != nil {
+		return nil, err
+	}
+
+	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("failed to get public key from private key")
+	}
+
+	return publicKeyECDSA, nil
+}
 
 func GetKey() (WalletKey, error) {
 	key, err := loadKey()

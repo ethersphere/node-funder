@@ -24,11 +24,6 @@ func FundAllNodes(cfg Config) error {
 
 	ctx := context.Background()
 
-	kubeClient, err := kube.NewKube()
-	if err != nil {
-		return fmt.Errorf("connecting kube client with error: %w", err)
-	}
-
 	key, err := wallet.GetKey()
 	if err != nil {
 		return fmt.Errorf("failed getting wallet key: %w", err)
@@ -42,6 +37,11 @@ func FundAllNodes(cfg Config) error {
 	}
 
 	fundingWallet := wallet.New(ethClient, key)
+
+	kubeClient, err := kube.NewKube()
+	if err != nil {
+		return fmt.Errorf("connecting kube client with error: %w", err)
+	}
 
 	namespace, err := kube.FetchNamespaceNodeInfo(ctx, kubeClient, cfg.Namespace)
 	if err != nil {
