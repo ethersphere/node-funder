@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -27,12 +28,14 @@ const gasLimit = uint64(100000)
 type Wallet struct {
 	client *ethclient.Client
 	key    Key
+	trxNo  *atomic.Int64
 }
 
 func New(client *ethclient.Client, key Key) *Wallet {
 	return &Wallet{
 		client: client,
 		key:    key,
+		trxNo:  &atomic.Int64{},
 	}
 }
 
@@ -102,7 +105,7 @@ func (w *Wallet) sendTransaction(
 
 	fromAddress := crypto.PubkeyToAddress(*publicKey)
 
-	nonce, err := w.client.PendingNonceAt(ctx, fromAddress)
+	nonce, err := w.nunce(ctx, fromAddress)
 	if err != nil {
 		return fmt.Errorf("failed to make nonce, %w", err)
 	}
@@ -125,6 +128,17 @@ func (w *Wallet) sendTransaction(
 	}
 
 	return nil
+}
+
+func (w *Wallet) nunce(ctx context.Context, addr common.Address) (uint64, error) {
+	nonce, err := w.client.PendingNonceAt(ctx, addr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get nonce, %w", err)
+	}
+
+	nonce += uint64(w.trxNo.Add(1) - 1)
+
+	return nonce, nil
 }
 
 func (w *Wallet) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
