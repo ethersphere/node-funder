@@ -142,12 +142,12 @@ func (w *Wallet) nunce(ctx context.Context, addr common.Address) (uint64, error)
 }
 
 func (w *Wallet) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
-	privateKey, err := w.key.Private()
+	privateKey, err := w.key.PrivateECDSA()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	publicKeyECDSA, err := w.key.Public()
+	publicKeyECDSA, err := w.key.PublicECDSA()
 	if err != nil {
 		return nil, nil, err
 	}
