@@ -39,5 +39,9 @@ func ParseConfig() (Config, error) {
 		return cfg, fmt.Errorf("url to chain node must be set")
 	}
 
+	if cfg.WalletKey == "" {
+		return cfg, fmt.Errorf("wallet key must be sepcifed")
+	}
+
 	return cfg, nil
 }
