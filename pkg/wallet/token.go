@@ -35,12 +35,12 @@ var chainToSwarmTokenMap = map[int64]Token{
 var chainToNativeCoinMap = map[int64]Token{
 	// Goerli (testnet)
 	5: {
-		Decimals: 16,
+		Decimals: 18,
 	},
 
 	// Gnosis Chain
 	100: {
-		Decimals: 16,
+		Decimals: 18,
 	},
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -22,17 +23,19 @@ import (
 
 var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
 
-const gasLimit = uint64(21000)
+const gasLimit = uint64(100000)
 
 type Wallet struct {
 	client *ethclient.Client
-	key    WalletKey
+	key    Key
+	trxNo  *atomic.Int64
 }
 
-func New(client *ethclient.Client, key WalletKey) *Wallet {
+func New(client *ethclient.Client, key Key) *Wallet {
 	return &Wallet{
 		client: client,
 		key:    key,
+		trxNo:  &atomic.Int64{},
 	}
 }
 
@@ -45,7 +48,12 @@ func (w *Wallet) CainID(ctx context.Context) (int64, error) {
 	return id.Int64(), nil
 }
 
-func (w *Wallet) TransferNative(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int) error {
+func (w *Wallet) TransferNative(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+) error {
 	err := w.sendTransaction(ctx, cid, toAddr, amount, nil)
 	if err != nil {
 		return fmt.Errorf("failed to make native coin transfer, %w", err)
@@ -54,13 +62,19 @@ func (w *Wallet) TransferNative(ctx context.Context, cid int64, toAddr common.Ad
 	return nil
 }
 
-func (w *Wallet) TransferERC20(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int, token Token) error {
+func (w *Wallet) TransferERC20(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+	token Token,
+) error {
 	callData, err := erc20ABI.Pack("transfer", toAddr, amount)
 	if err != nil {
 		return fmt.Errorf("failed to pack abi, %w", err)
 	}
 
-	err = w.sendTransaction(ctx, cid, token.Contract, big.NewInt(0), callData)
+	err = w.sendTransaction(ctx, cid, token.Contract, nil, callData)
 	if err != nil {
 		return fmt.Errorf("failed to make ERC20 token transfer, %w", err)
 	}
@@ -68,7 +82,13 @@ func (w *Wallet) TransferERC20(ctx context.Context, cid int64, toAddr common.Add
 	return nil
 }
 
-func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.Address, amount *big.Int, callData []byte) error {
+func (w *Wallet) sendTransaction(
+	ctx context.Context,
+	cid int64,
+	toAddr common.Address,
+	amount *big.Int,
+	callData []byte,
+) error {
 	chainID, err := w.client.NetworkID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get network id, %w", err)
@@ -85,7 +105,7 @@ func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.A
 
 	fromAddress := crypto.PubkeyToAddress(*publicKey)
 
-	nonce, err := w.client.PendingNonceAt(ctx, fromAddress)
+	nonce, err := w.nunce(ctx, fromAddress)
 	if err != nil {
 		return fmt.Errorf("failed to make nonce, %w", err)
 	}
@@ -110,15 +130,26 @@ func (w *Wallet) sendTransaction(ctx context.Context, cid int64, toAddr common.A
 	return nil
 }
 
+func (w *Wallet) nunce(ctx context.Context, addr common.Address) (uint64, error) {
+	nonce, err := w.client.PendingNonceAt(ctx, addr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get nonce, %w", err)
+	}
+
+	nonce += uint64(w.trxNo.Add(1) - 1)
+
+	return nonce, nil
+}
+
 func (w *Wallet) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
-	privateKey, err := crypto.HexToECDSA(string(w.key))
+	privateKey, err := w.key.Private()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
-	if !ok {
-		return nil, nil, fmt.Errorf("failed to get public key from private key")
+	publicKeyECDSA, err := w.key.Public()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return privateKey, publicKeyECDSA, nil
