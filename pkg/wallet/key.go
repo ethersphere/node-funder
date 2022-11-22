@@ -9,12 +9,13 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type Key string
 
-func (k Key) Private() (*ecdsa.PrivateKey, error) {
+func (k Key) PrivateECDSA() (*ecdsa.PrivateKey, error) {
 	privateKey, err := crypto.HexToECDSA(string(k))
 	if err != nil {
 		return nil, err
@@ -23,8 +24,8 @@ func (k Key) Private() (*ecdsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-func (k Key) Public() (*ecdsa.PublicKey, error) {
-	privateKey, err := k.Private()
+func (k Key) PublicECDSA() (*ecdsa.PublicKey, error) {
+	privateKey, err := k.PrivateECDSA()
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +36,15 @@ func (k Key) Public() (*ecdsa.PublicKey, error) {
 	}
 
 	return publicKeyECDSA, nil
+}
+
+func (k Key) PublicAddress() (common.Address, error) {
+	publicKeyECDSA, err := k.PublicECDSA()
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	return crypto.PubkeyToAddress(*publicKeyECDSA), nil
 }
 
 func GenerateKey() (Key, error) {

@@ -31,6 +31,10 @@ func FundAllNodes(cfg Config) error {
 
 	log.Printf("using wallet address: %s", key)
 
+	if pubKeyAddr, err := key.PublicAddress(); err == nil {
+		log.Printf("using wallet address (public key address): %s", pubKeyAddr)
+	}
+
 	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
 	if err != nil {
 		return fmt.Errorf("failed make eth client: %w", err)
