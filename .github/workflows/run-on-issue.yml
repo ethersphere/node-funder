@@ -1,11 +1,11 @@
-name: run-on-issue
+name: "run node-funder via issue"
 
 on:
   issues:
     types: [opened, edited]
 
 jobs:
-  run-on-issue:
+  run:
   #  if:  startsWith(github.event.issue.title, 'run node-funder')
     runs-on: ubuntu-latest
     setps:
