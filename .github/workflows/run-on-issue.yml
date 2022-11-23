@@ -1,4 +1,4 @@
-name: run
+name: run-on-issue
 
 on:
   issues:
