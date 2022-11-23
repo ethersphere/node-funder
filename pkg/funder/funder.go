@@ -62,12 +62,15 @@ func FundAllNodes(cfg Config) error {
 		go fundNode(ctx, fundingWallet, cfg.MinAmounts, n, fundNodeRespC)
 	}
 
+	allNodesFunded := true
+
 	for i := 0; i < len(namespace.Nodes); i++ {
 		resp := <-fundNodeRespC
 		name := resp.node.Name
 		walletAddr := resp.node.WalletInfo.Address
 
 		if resp.err != nil {
+			allNodesFunded = false
 			log.Printf("failed to fund node (%s) (wallet=%s) - error: %s", name, walletAddr, resp.err)
 			continue
 		}
@@ -84,7 +87,11 @@ func FundAllNodes(cfg Config) error {
 		}
 	}
 
-	return nil
+	if allNodesFunded {
+		return nil
+	}
+
+	return fmt.Errorf("failed funding all nodes")
 }
 
 func makeWalletKey(cfg Config) (wallet.Key, error) {

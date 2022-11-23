@@ -13,10 +13,10 @@ import (
 func main() {
 	cfg, err := funder.ParseConfig()
 	if err != nil {
-		log.Panicf("failed parsing config: %v", err)
+		log.Fatalf("failed parsing config: %v", err)
 	}
 
 	if err = funder.FundAllNodes(cfg); err != nil {
-		log.Panicf("error while funding nodes: %v", err)
+		log.Fatalf("error while funding nodes: %v", err)
 	}
 }
