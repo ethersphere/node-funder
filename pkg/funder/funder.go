@@ -70,8 +70,10 @@ func FundAllNodes(cfg Config) error {
 		walletAddr := resp.node.WalletInfo.Address
 
 		if resp.err != nil {
-			allNodesFunded = false
 			log.Printf("failed to fund node (%s) (wallet=%s) - error: %s", name, walletAddr, resp.err)
+
+			allNodesFunded = false
+
 			continue
 		}
 
