@@ -1,7 +1,9 @@
 name: run
+
 on:
   issues:
     types: [opened, edited]
+
 jobs:
  run-on-issue:
      strategy:
