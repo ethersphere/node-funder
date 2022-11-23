@@ -20,7 +20,7 @@ import (
 )
 
 func FundAllNodes(cfg Config) error {
-	log.Printf("funding nodes using config: %+v", cfg)
+	log.Printf("node funder started...")
 
 	ctx := context.Background()
 
@@ -55,7 +55,7 @@ func FundAllNodes(cfg Config) error {
 		return fmt.Errorf("get node info failed with error: %w", err)
 	}
 
-	log.Printf("funding nodes... (count=%d)", len(namespace.Nodes))
+	log.Printf("funding nodes (count=%d) up to amounts=%+v", len(namespace.Nodes), cfg.MinAmounts)
 
 	fundNodeRespC := make(chan fundNodeResp, len(namespace.Nodes))
 	for _, n := range namespace.Nodes {
