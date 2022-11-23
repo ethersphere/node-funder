@@ -1,22 +1,18 @@
-name: run-on-issue
+name: "run node-funder via issue"
 
 on:
   issues:
     types: [opened, edited]
 
 jobs:
-  run-on-issue:
-    strategy:
-      matrix:
-        go-version: [1.19]
-    name: run on issue
+  run:
+    if: startsWith(github.event.issue.title, 'run node-funder')
     runs-on: ubuntu-latest
-    if:  startsWith(github.event.issue.title, 'run node-funder')
-    setps:
+    steps:
       - name: checkout
         uses: actions/checkout@v2
       - uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.19
       - name: run node-funder
-        run: go run ./cmd -chainNodeEndpoint=${{secrets.CHAIN_NODE_ENDPOINT}} -walletKey=${{secrets.WALLET_KEY}} ${{github.event.issue.body}}
+        run: go run ./cmd -chainNodeEndpoint="${{secrets.CHAIN_NODE_ENDPOINT}}" -walletKey="${{secrets.WALLET_KEY}}" ${{github.event.issue.body}}
