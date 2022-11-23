@@ -29,12 +29,12 @@ func FundAllNodes(cfg Config) error {
 		return fmt.Errorf("failed getting wallet key: %w", err)
 	}
 
-	log.Printf("using wallet address: %s", key)
-
 	pubKeyAddr, err := key.PublicAddress()
-	if err == nil {
-		log.Printf("using wallet address (public key address): %s", pubKeyAddr)
+	if err != nil {
+		return fmt.Errorf("failed getting wallet public key: %w", err)
 	}
+
+	log.Printf("using wallet address (public key address): %s", pubKeyAddr)
 
 	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
 	if err != nil {
@@ -48,10 +48,14 @@ func FundAllNodes(cfg Config) error {
 		return fmt.Errorf("connecting kube client with error: %w", err)
 	}
 
+	log.Printf("fetchin nodes for namespace=%s", cfg.Namespace)
+
 	namespace, err := kube.FetchNamespaceNodeInfo(ctx, kubeClient, cfg.Namespace)
 	if err != nil {
 		return fmt.Errorf("get node info failed with error: %w", err)
 	}
+
+	log.Printf("funding nodes... (count=%d)", len(namespace.Nodes))
 
 	fundNodeRespC := make(chan fundNodeResp, len(namespace.Nodes))
 	for _, n := range namespace.Nodes {
@@ -60,14 +64,23 @@ func FundAllNodes(cfg Config) error {
 
 	for i := 0; i < len(namespace.Nodes); i++ {
 		resp := <-fundNodeRespC
+		name := resp.node.Name
+		walletAddr := resp.node.WalletInfo.Address
+
 		if resp.err != nil {
-			log.Printf("failed to fund node (%s): %s", resp.node.Name, resp.err)
+			log.Printf("failed to fund node (%s) (wallet=%s) - error: %s", name, walletAddr, resp.err)
+			continue
+		}
+
+		if resp.transferredNativeAmount == nil && resp.transferredSwarmAmount == nil {
+			log.Printf("node (%s) funded (wallet=%s) - already funded", name, walletAddr)
 		} else {
-			if resp.transferredNativeAmount == nil && resp.transferredSwarmAmount == nil {
-				log.Printf("node funded (%s) - already funded", resp.node.Name)
-			} else {
-				log.Printf("node funded (%s) - transferred native: %s, transferred swarm: %s ", resp.node.Name, resp.transferredNativeAmount, resp.transferredSwarmAmount)
-			}
+			token, _ := wallet.NativeCoinForChain(resp.node.WalletInfo.ChainID)
+			nativeAmount := formatAmount(resp.transferredNativeAmount, token.Decimals)
+			token, _ = wallet.SwarmTokenForChain(resp.node.WalletInfo.ChainID)
+			swarmAmount := formatAmount(resp.transferredSwarmAmount, token.Decimals)
+
+			log.Printf("node (%s) funded (wallet=%s) - transferred native: %s, transferred swarm: %s ", name, walletAddr, nativeAmount, swarmAmount)
 		}
 	}
 
@@ -190,6 +203,10 @@ func transferNativeCoin(
 		return nil, nil
 	}
 
+	if !common.IsHexAddress(node.WalletInfo.Address) {
+		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithNativeCoin)
+	}
+
 	address := common.HexToAddress(node.WalletInfo.Address)
 
 	err = fundingWallet.TransferNative(ctx, cid, address, topUpAmount)
@@ -219,6 +236,10 @@ func transferSwarmToken(
 		return nil, nil
 	}
 
+	if !common.IsHexAddress(node.WalletInfo.Address) {
+		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithSwarmToken)
+	}
+
 	address := common.HexToAddress(node.WalletInfo.Address)
 
 	err = fundingWallet.TransferERC20(ctx, cid, address, topUpAmount, token)
@@ -229,8 +250,8 @@ func transferSwarmToken(
 	return topUpAmount, nil
 }
 
-func CalcTopUpAmount(min float64, nodeAmount *big.Int, tokenDecimals int) *big.Int {
-	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(tokenDecimals)), nil)
+func CalcTopUpAmount(min float64, nodeAmount *big.Int, decimals int) *big.Int {
+	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
 	minAmount := big.NewFloat(min)
 	minAmount = minAmount.Mul(
@@ -241,4 +262,17 @@ func CalcTopUpAmount(min float64, nodeAmount *big.Int, tokenDecimals int) *big.I
 	minAmountInt, _ := minAmount.Int(big.NewInt(0))
 
 	return minAmountInt.Sub(minAmountInt, nodeAmount)
+}
+
+func formatAmount(amount *big.Int, decimals int) string {
+	if amount == nil {
+		return "0"
+	}
+
+	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+
+	a := big.NewFloat(0).SetInt(amount)
+	a.Quo(a, big.NewFloat(0).SetInt(exp))
+
+	return a.String()
 }
