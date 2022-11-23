@@ -5,10 +5,11 @@ on:
     types: [opened, edited]
 
 jobs:
- run-on-issue:
-     strategy:
+  run-on-issue:
+    strategy:
       matrix:
         go-version: [1.19]
+    name: run on issue
     runs-on: ubuntu-latest
     if:  startsWith(github.event.issue.title, 'run node-funder')
     setps:
