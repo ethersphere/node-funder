@@ -23,8 +23,7 @@ import (
 )
 
 const (
-	beeAddressEndpoint = "/addresses"
-	beeWalletEndpoint  = "/wallet"
+	beeWalletEndpoint = "/wallet"
 )
 
 type NamespaceNodes struct {
@@ -115,38 +114,26 @@ func FetchNamespaceNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client
 }
 
 func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
-	// get eth address
-	response, err := util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeAddressEndpoint), nil)
-	if err != nil {
-		return WalletInfo{}, fmt.Errorf("get node wallet address failed: %w", err)
-	}
-
-	addressResp := struct {
-		EthereumAddress string `json:"ethereum"`
-	}{}
-	if err = json.Unmarshal(response, &addressResp); err != nil {
-		return WalletInfo{}, fmt.Errorf("failed to unmarshal address response :%w", err)
-	}
-
 	// get wallet balance
-	response, err = util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint), nil)
+	response, err := util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint), nil)
 	if err != nil {
 		return WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
 	}
 
 	walletResponse := struct {
-		Bzz     string `json:"bzz"`
-		XDai    string `json:"xDai"`
-		ChainID int64  `json:"chainID"`
+		BzzBalance         string `json:"bzzBalance"`
+		NativeTokenBalance string `json:"nativeTokenBalance"`
+		WalletAddress      string `json:"walletAddress"`
+		ChainID            int64  `json:"chainID"`
 	}{}
 	if err := json.Unmarshal(response, &walletResponse); err != nil {
 		return WalletInfo{}, fmt.Errorf("failed to unmarshal wallet response :%w", err)
 	}
 
 	return WalletInfo{
-		Address:    addressResp.EthereumAddress,
-		NativeCoin: stringGweiToEth(walletResponse.XDai),
-		SwarmToken: stringGweiToEth(walletResponse.Bzz),
+		Address:    walletResponse.WalletAddress,
+		NativeCoin: stringGweiToEth(walletResponse.NativeTokenBalance),
+		SwarmToken: stringGweiToEth(walletResponse.BzzBalance),
 		ChainID:    walletResponse.ChainID,
 	}, nil
 }
