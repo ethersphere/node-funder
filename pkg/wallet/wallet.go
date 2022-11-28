@@ -9,6 +9,10 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"math/big"
+	"strings"
+	"sync/atomic"
+
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -17,9 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethersphere/go-sw3-abi/sw3abi"
-	"math/big"
-	"strings"
-	"sync/atomic"
 )
 
 var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
@@ -112,6 +113,7 @@ func (w *Wallet) sendTransaction(
 	if err != nil {
 		return fmt.Errorf("failed to make nonce, %w", err)
 	}
+
 	gas, gasFeeCap, gasTipCap, err := w.calculateGas(ctx, ethereum.CallMsg{
 		From: fromAddress,
 		To:   &toAddr,
@@ -131,6 +133,7 @@ func (w *Wallet) sendTransaction(
 		GasTipCap: gasTipCap,
 		Data:      callData,
 	})
+
 	signedTx, err := w.SignTx(tx, chainID)
 	if err != nil {
 		return fmt.Errorf("failed to sign transaction, %w", err)
@@ -156,11 +159,13 @@ func (w *Wallet) calculateGas(ctx context.Context, msg ethereum.CallMsg) (uint64
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("failed to get suggested gas price, %w", err)
 	}
+
 	return gas, gasFeeCap, gasTipCap, nil
 }
 
 func (w *Wallet) suggestedFeeAndTip(ctx context.Context, boostPercent int) (*big.Int, *big.Int, error) {
 	var err error
+
 	gasPrice, err := w.client.SuggestGasPrice(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -176,7 +181,6 @@ func (w *Wallet) suggestedFeeAndTip(ctx context.Context, boostPercent int) (*big
 	gasFeeCap := new(big.Int).Add(gasTipCap, gasPrice)
 
 	return gasFeeCap, gasTipCap, nil
-
 }
 
 // SignTx signs an ethereum transaction.
@@ -191,6 +195,7 @@ func (w *Wallet) SignTx(transaction *types.Transaction, chainID *big.Int) (*type
 
 	// v value needs to be adjusted by 27 as transaction.WithSignature expects it to be 0 or 1
 	signature[64] -= 27
+
 	return transaction.WithSignature(txSigner, signature)
 }
 
@@ -200,6 +205,7 @@ func (w *Wallet) sign(sighash []byte, isCompressedKey bool) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	signature, err := btcec.SignCompact(btcec.S256(), (*btcec.PrivateKey)(privateECDSA), sighash, false)
 	if err != nil {
 		return nil, err
@@ -209,6 +215,7 @@ func (w *Wallet) sign(sighash []byte, isCompressedKey bool) ([]byte, error) {
 	v := signature[0]
 	copy(signature, signature[1:])
 	signature[64] = v
+
 	return signature, nil
 }
 
