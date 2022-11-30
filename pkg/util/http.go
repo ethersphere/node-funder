@@ -26,6 +26,10 @@ func SendHTTPRequest(ctx context.Context, method, endpoint string, body io.Reade
 		return nil, err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("request failed: status code %d", resp.StatusCode)
+	}
+
 	defer resp.Body.Close()
 
 	return io.ReadAll(resp.Body)

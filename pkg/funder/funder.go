@@ -21,6 +21,7 @@ import (
 
 func FundAllNodes(cfg Config) error {
 	log.Printf("node funder started...")
+	defer log.Print("node funder finished")
 
 	ctx := context.Background()
 
@@ -206,17 +207,22 @@ func transferNativeCoin(
 		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
 	}
 
-	topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, node.WalletInfo.NativeCoin, token.Decimals)
-	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
-		// Node has enough in wallet, top up is not needed
-		return nil, nil
-	}
-
 	if !common.IsHexAddress(node.WalletInfo.Address) {
 		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithNativeCoin)
 	}
 
 	address := common.HexToAddress(node.WalletInfo.Address)
+
+	currentBalance, err := fundingWallet.BalanceNative(ctx, address)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
+	}
+
+	topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, currentBalance, token.Decimals)
+	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
+		// Node has enough in wallet, top up is not needed
+		return nil, nil
+	}
 
 	err = fundingWallet.TransferNative(ctx, cid, address, topUpAmount)
 	if err != nil {
@@ -239,17 +245,22 @@ func transferSwarmToken(
 		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
 	}
 
-	topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, node.WalletInfo.SwarmToken, token.Decimals)
-	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
-		// Node has enough in wallet, top up is not needed
-		return nil, nil
-	}
-
 	if !common.IsHexAddress(node.WalletInfo.Address) {
 		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithSwarmToken)
 	}
 
 	address := common.HexToAddress(node.WalletInfo.Address)
+
+	currentBalance, err := fundingWallet.BalanceERC20(ctx, address, token)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
+	}
+
+	topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, currentBalance, token.Decimals)
+	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
+		// Node has enough in wallet, top up is not needed
+		return nil, nil
+	}
 
 	err = fundingWallet.TransferERC20(ctx, cid, address, topUpAmount, token)
 	if err != nil {

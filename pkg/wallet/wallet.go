@@ -66,6 +66,41 @@ func (w *Wallet) TransferNative(
 	return nil
 }
 
+func (w *Wallet) BalanceNative(
+	ctx context.Context,
+	addr common.Address,
+) (*big.Int, error) {
+	return w.client.BalanceAt(ctx, addr, nil)
+}
+
+func (w *Wallet) BalanceERC20(
+	ctx context.Context,
+	addr common.Address,
+	token Token,
+) (*big.Int, error) {
+	callData, err := erc20ABI.Pack("balanceOf", addr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack abi, %w", err)
+	}
+
+	resp, err := w.client.CallContract(ctx, ethereum.CallMsg{
+		To:   &token.Contract,
+		Data: callData,
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call contract, %w", err)
+	}
+
+	var balance *big.Int
+
+	err = erc20ABI.UnpackIntoInterface(&balance, "balanceOf", resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack abi, %w", err)
+	}
+
+	return balance, nil
+}
+
 func (w *Wallet) TransferERC20(
 	ctx context.Context,
 	cid int64,
@@ -134,7 +169,7 @@ func (w *Wallet) sendTransaction(
 		Data:      callData,
 	})
 
-	signedTx, err := w.SignTx(tx, chainID)
+	signedTx, err := w.signTx(tx, chainID)
 	if err != nil {
 		return fmt.Errorf("failed to sign transaction, %w", err)
 	}
@@ -183,10 +218,10 @@ func (w *Wallet) suggestedFeeAndTip(ctx context.Context, boostPercent int) (*big
 	return gasFeeCap, gasTipCap, nil
 }
 
-// SignTx signs an ethereum transaction.
-func (w *Wallet) SignTx(transaction *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
+func (w *Wallet) signTx(transaction *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
 	txSigner := types.NewLondonSigner(chainID)
 	hash := txSigner.Hash(transaction).Bytes()
+
 	// isCompressedKey is false here so we get the expected v value (27 or 28)
 	signature, err := w.sign(hash, false)
 	if err != nil {
