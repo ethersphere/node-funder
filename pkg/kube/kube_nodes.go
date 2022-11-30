@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"os"
 
@@ -37,10 +36,8 @@ type Node struct {
 }
 
 type WalletInfo struct {
-	Address    string
-	ChainID    int64
-	NativeCoin *big.Int
-	SwarmToken *big.Int
+	Address string
+	ChainID int64
 }
 
 type TokenResponse struct {
@@ -121,30 +118,23 @@ func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error
 	}
 
 	walletResponse := struct {
-		BzzBalance         string `json:"bzzBalance"`
-		NativeTokenBalance string `json:"nativeTokenBalance"`
-		WalletAddress      string `json:"walletAddress"`
-		ChainID            int64  `json:"chainID"`
+		WalletAddress string `json:"walletAddress"`
+		ChainID       int64  `json:"chainID"`
 	}{}
 	if err := json.Unmarshal(response, &walletResponse); err != nil {
 		return WalletInfo{}, fmt.Errorf("failed to unmarshal wallet response :%w", err)
 	}
 
+	if walletResponse.WalletAddress == "" {
+		return WalletInfo{}, fmt.Errorf("failed getting bee node wallet address")
+	}
+
 	return WalletInfo{
-		Address:    walletResponse.WalletAddress,
-		NativeCoin: stringGweiToEth(walletResponse.NativeTokenBalance),
-		SwarmToken: stringGweiToEth(walletResponse.BzzBalance),
-		ChainID:    walletResponse.ChainID,
+		Address: walletResponse.WalletAddress,
+		ChainID: walletResponse.ChainID,
 	}, nil
 }
 
 func nodeAPIAddress(nodeAddress, endpoint string) string {
 	return fmt.Sprintf("http://%s:1635%s", nodeAddress, endpoint)
-}
-
-func stringGweiToEth(gwei string) *big.Int {
-	eth := new(big.Int)
-	eth.SetString(gwei, 10)
-
-	return eth
 }
