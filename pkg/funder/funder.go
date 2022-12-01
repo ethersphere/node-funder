@@ -106,15 +106,15 @@ func fundAllWallets(
 	minAmounts MinAmounts,
 	wallets []types.WalletInfo,
 ) bool {
-	fundWalletRespC := make(chan fundWalletResp, len(wallets))
-	for _, wi := range wallets {
-		go fundWallet(ctx, fundingWallet, minAmounts, wi, fundWalletRespC)
+	fundWalletRespC := make([]<-chan fundWalletResp, len(wallets))
+	for i, wi := range wallets {
+		fundWalletRespC[i] = fundWalletAsync(ctx, fundingWallet, minAmounts, wi)
 	}
 
 	allWalletsFunded := true
 
-	for i := 0; i < len(wallets); i++ {
-		resp := <-fundWalletRespC
+	for _, respC := range fundWalletRespC {
+		resp := <-respC
 		name := resp.wallet.Name
 		cid := resp.wallet.ChainID
 
@@ -194,40 +194,48 @@ var (
 	ErrFailedFudningWithNativeToken = errors.New("failed funding with native token")
 )
 
-func fundWallet(
+func fundWalletAsync(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
 	wi types.WalletInfo,
-	fundWalletRespC chan<- fundWalletResp,
-) {
+) <-chan fundWalletResp {
+	respC := make(chan fundWalletResp, 1)
+
+	go func() {
+		if err := validateChainID(ctx, fundingWallet, wi); err != nil {
+			respC <- fundWalletResp{wallet: wi, err: err}
+			return
+		}
+
+		nativeResp := <-topUpWalletAsync(ctx, wallet.NativeCoinForChain, fundingWallet.Native(), minAmounts.NativeCoin, wi)
+		swarmResp := <-topUpWalletAsync(ctx, wallet.SwarmTokenForChain, fundingWallet.ERC20(), minAmounts.SwarmToken, wi)
+
+		err := mergeErrors(
+			ErrFailedFunding,
+			mergeErrors(ErrFailedFudningWithNativeToken, nativeResp.err),
+			mergeErrors(ErrFailedFudningWithSwarmToken, swarmResp.err),
+		)
+
+		respC <- fundWalletResp{
+			wallet:                  wi,
+			err:                     err,
+			transferredNativeAmount: nativeResp.transferredAmount,
+			transferredSwarmAmount:  swarmResp.transferredAmount,
+		}
+	}()
+
+	return respC
+}
+
+func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi types.WalletInfo) error {
 	if cid, err := fundingWallet.CainID(ctx); err != nil {
-		fundWalletRespC <- fundWalletResp{
-			wallet: wi,
-			err:    fmt.Errorf("failed getting funding wallet's chain ID: %w", err),
-		}
+		return fmt.Errorf("failed getting funding wallet's chain ID: %w", err)
 	} else if cid != wi.ChainID {
-		fundWalletRespC <- fundWalletResp{
-			wallet: wi,
-			err:    fmt.Errorf("wallet info chain ID (%d) does not match funding wallet chain ID (%d)", wi.ChainID, cid),
-		}
+		return fmt.Errorf("wallet info chain ID (%d) does not match funding wallet chain ID (%d)", wi.ChainID, cid)
 	}
 
-	nativeResp := <-topUpWalletAsync(ctx, wallet.NativeCoinForChain, fundingWallet.Native(), minAmounts.NativeCoin, wi)
-	swarmResp := <-topUpWalletAsync(ctx, wallet.SwarmTokenForChain, fundingWallet.ERC20(), minAmounts.SwarmToken, wi)
-
-	err := mergeErrors(
-		ErrFailedFunding,
-		mergeErrors(ErrFailedFudningWithNativeToken, nativeResp.err),
-		mergeErrors(ErrFailedFudningWithSwarmToken, swarmResp.err),
-	)
-
-	fundWalletRespC <- fundWalletResp{
-		wallet:                  wi,
-		err:                     err,
-		transferredNativeAmount: nativeResp.transferredAmount,
-		transferredSwarmAmount:  swarmResp.transferredAmount,
-	}
+	return nil
 }
 
 func mergeErrors(main error, errs ...error) error {
