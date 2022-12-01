@@ -16,7 +16,7 @@ func main() {
 		log.Fatalf("failed parsing config: %v", err)
 	}
 
-	if err = funder.FundAllNodes(cfg); err != nil {
-		log.Fatalf("error while funding nodes: %v", err)
+	if err = funder.Fund(cfg); err != nil {
+		log.Fatalf("error while funding: %v", err)
 	}
 }

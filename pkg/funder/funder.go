@@ -16,85 +16,152 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethersphere/node-funder/pkg/kube"
+	"github.com/ethersphere/node-funder/pkg/types"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
-func FundAllNodes(cfg Config) error {
+func Fund(cfg Config) error {
+	if cfg.Namespace != "" {
+		return FundNamespace(cfg)
+	}
+
+	return FundAddresses(cfg)
+}
+
+func FundNamespace(cfg Config) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
 	ctx := context.Background()
 
-	key, err := makeWalletKey(cfg)
+	fundingWallet, err := makeFundingWallet(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("failed getting wallet key: %w", err)
+		return fmt.Errorf("failed to make funding wallet: %w", err)
 	}
-
-	pubKeyAddr, err := key.PublicAddress()
-	if err != nil {
-		return fmt.Errorf("failed getting wallet public key: %w", err)
-	}
-
-	log.Printf("using wallet address (public key address): %s", pubKeyAddr)
-
-	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
-	if err != nil {
-		return fmt.Errorf("failed make eth client: %w", err)
-	}
-
-	fundingWallet := wallet.New(ethClient, key)
 
 	kubeClient, err := kube.NewKube()
 	if err != nil {
-		return fmt.Errorf("connecting kube client with error: %w", err)
+		return fmt.Errorf("connecting kube client failed: %w", err)
 	}
 
 	log.Printf("fetchin nodes for namespace=%s", cfg.Namespace)
 
 	namespace, err := kube.FetchNamespaceNodeInfo(ctx, kubeClient, cfg.Namespace)
 	if err != nil {
-		return fmt.Errorf("get node info failed with error: %w", err)
+		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
 
-	log.Printf("funding nodes (count=%d) up to amounts=%+v", len(namespace.Nodes), cfg.MinAmounts)
+	log.Printf("funding nodes (count=%d) up to amounts=%+v", len(namespace.NodeWallets), cfg.MinAmounts)
 
-	fundNodeRespC := make(chan fundNodeResp, len(namespace.Nodes))
-	for _, n := range namespace.Nodes {
-		go fundNode(ctx, fundingWallet, cfg.MinAmounts, n, fundNodeRespC)
+	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, namespace.NodeWallets); !ok {
+		return fmt.Errorf("funding all nodes failed")
 	}
 
-	allNodesFunded := true
+	return nil
+}
 
-	for i := 0; i < len(namespace.Nodes); i++ {
-		resp := <-fundNodeRespC
-		name := resp.node.Name
-		walletAddr := resp.node.WalletInfo.Address
+func FundAddresses(cfg Config) error {
+	log.Printf("node funder started...")
+	defer log.Print("node funder finished")
+
+	ctx := context.Background()
+
+	fundingWallet, err := makeFundingWallet(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to make funding wallet: %w", err)
+	}
+
+	cid, err := fundingWallet.CainID(ctx)
+	if err != nil {
+		return err
+	}
+
+	wallets := makeWalletInfoFromAddresses(cfg.Addresses, cid)
+
+	log.Printf("funding wallets (count=%d) up to amounts=%+v", len(wallets), cfg.MinAmounts)
+
+	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, wallets); ok {
+		return fmt.Errorf("funding all wallets failed")
+	}
+
+	return nil
+}
+
+func makeWalletInfoFromAddresses(addrs []string, cid int64) []types.WalletInfo {
+	result := make([]types.WalletInfo, 0, len(addrs))
+	for _, addr := range addrs {
+		result = append(result, types.WalletInfo{
+			Name:    fmt.Sprintf("wallet (address=%s)", addr),
+			ChainID: cid,
+			Address: addr,
+		})
+	}
+
+	return result
+}
+
+func fundAllWallets(
+	ctx context.Context,
+	fundingWallet *wallet.Wallet,
+	minAmounts MinAmounts,
+	wallets []types.WalletInfo,
+) bool {
+	fundWalletRespC := make(chan fundWalletResp, len(wallets))
+	for _, wi := range wallets {
+		go fundWallet(ctx, fundingWallet, minAmounts, wi, fundWalletRespC)
+	}
+
+	allWalletsFunded := true
+
+	for i := 0; i < len(wallets); i++ {
+		resp := <-fundWalletRespC
+		name := resp.wallet.Name
+		cid := resp.wallet.ChainID
 
 		if resp.err != nil {
-			log.Printf("failed to fund node (%s) (wallet=%s) - error: %s", name, walletAddr, resp.err)
+			log.Printf("%s funding failed - error: %s", name, resp.err)
 
-			allNodesFunded = false
+			allWalletsFunded = false
 
 			continue
 		}
 
 		if resp.transferredNativeAmount == nil && resp.transferredSwarmAmount == nil {
-			log.Printf("node (%s) funded (wallet=%s) - already funded", name, walletAddr)
+			log.Printf("%s funded - already funded", name)
 		} else {
-			token, _ := wallet.NativeCoinForChain(resp.node.WalletInfo.ChainID)
+			token, _ := wallet.NativeCoinForChain(cid)
 			nativeAmount := formatAmount(resp.transferredNativeAmount, token.Decimals)
-			token, _ = wallet.SwarmTokenForChain(resp.node.WalletInfo.ChainID)
+			token, _ = wallet.SwarmTokenForChain(cid)
 			swarmAmount := formatAmount(resp.transferredSwarmAmount, token.Decimals)
 
-			log.Printf("node (%s) funded (wallet=%s) - transferred native: %s, transferred swarm: %s ", name, walletAddr, nativeAmount, swarmAmount)
+			log.Printf("%s funded - transferred native: %s, transferred swarm: %s ", name, nativeAmount, swarmAmount)
 		}
 	}
 
-	if allNodesFunded {
-		return nil
+	return allWalletsFunded
+}
+
+func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) {
+	key, err := makeWalletKey(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("making wallet key failed: %w", err)
 	}
 
-	return fmt.Errorf("failed funding all nodes")
+	pubKeyAddr, err := key.PublicAddress()
+	if err != nil {
+		return nil, fmt.Errorf("getting wallet public key failed: %w", err)
+	}
+
+	log.Printf("using wallet address (public key address): %s", pubKeyAddr)
+
+	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("making eth client failed: %w", err)
+	}
+
+	fundingWallet := wallet.New(ethClient, key)
+
+	return fundingWallet, nil
 }
 
 func makeWalletKey(cfg Config) (wallet.Key, error) {
@@ -114,38 +181,38 @@ func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, err
 	return ethclient.NewClient(rpcClient), nil
 }
 
-type fundNodeResp struct {
-	node                    kube.Node
+type fundWalletResp struct {
+	wallet                  types.WalletInfo
 	err                     error
 	transferredNativeAmount *big.Int
 	transferredSwarmAmount  *big.Int
 }
 
 var (
-	ErrFailedFundingNode               = errors.New("failed funding node")
-	ErrFailedFudningNodeWithSwarmToken = errors.New("failed funding node with swarm token")
-	ErrFailedFudningNodeWithNativeCoin = errors.New("failed funding node with native coin")
+	ErrFailedFunding               = errors.New("failed funding")
+	ErrFailedFudningWithSwarmToken = errors.New("failed funding with swarm token")
+	ErrFailedFudningWithNativeCoin = errors.New("failed funding with native coin")
 )
 
-func fundNode(
+func fundWallet(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node kube.Node,
-	fundNodeRespC chan<- fundNodeResp,
+	walletInfo types.WalletInfo,
+	fundWalletRespC chan<- fundWalletResp,
 ) {
-	transferNativeRespC := make(chan transferResp)
-	transferSwarmRespC := make(chan transferResp)
+	transferNativeRespC := make(chan transferResp, 1)
+	transferSwarmRespC := make(chan transferResp, 1)
 
-	go transferFunds(transferNativeCoin, ctx, fundingWallet, minAmounts, node, transferNativeRespC)
-	go transferFunds(transferSwarmToken, ctx, fundingWallet, minAmounts, node, transferSwarmRespC)
+	go transferFunds(transferNativeCoin, ctx, fundingWallet, minAmounts, walletInfo, transferNativeRespC)
+	go transferFunds(transferSwarmToken, ctx, fundingWallet, minAmounts, walletInfo, transferSwarmRespC)
 
 	transferNativeResp := <-transferNativeRespC
 	transferSwarmResp := <-transferSwarmRespC
 
-	fundNodeRespC <- fundNodeResp{
-		node:                    node,
-		err:                     mergeErrors(ErrFailedFundingNode, transferNativeResp.err, transferSwarmResp.err),
+	fundWalletRespC <- fundWalletResp{
+		wallet:                  walletInfo,
+		err:                     mergeErrors(ErrFailedFunding, transferNativeResp.err, transferSwarmResp.err),
 		transferredNativeAmount: transferNativeResp.transferredAmount,
 		transferredSwarmAmount:  transferSwarmResp.transferredAmount,
 	}
@@ -161,7 +228,7 @@ func mergeErrors(main error, errs ...error) error {
 	}
 
 	if len(errorMsg) > 0 {
-		return fmt.Errorf("%w, reason: %s", ErrFailedFundingNode, strings.Join(errorMsg, ", "))
+		return fmt.Errorf("%w, reason: %s", ErrFailedFunding, strings.Join(errorMsg, ", "))
 	}
 
 	return nil
@@ -177,10 +244,10 @@ func transferFunds(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node kube.Node,
+	wi types.WalletInfo,
 	transferRespC chan<- transferResp,
 ) {
-	transferredAmount, err := transferFn(ctx, fundingWallet, minAmounts, node)
+	transferredAmount, err := transferFn(ctx, fundingWallet, minAmounts, wi)
 
 	transferRespC <- transferResp{
 		err:               err,
@@ -192,41 +259,40 @@ type transferFn = func(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node kube.Node) (*big.Int, error)
+	wi types.WalletInfo,
+) (*big.Int, error)
 
 func transferNativeCoin(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node kube.Node,
+	wi types.WalletInfo,
 ) (*big.Int, error) {
-	cid := node.WalletInfo.ChainID
-
-	token, err := wallet.NativeCoinForChain(cid)
+	token, err := wallet.NativeCoinForChain(wi.ChainID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
 	}
 
-	if !common.IsHexAddress(node.WalletInfo.Address) {
-		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithNativeCoin)
+	if !common.IsHexAddress(wi.Address) {
+		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningWithNativeCoin)
 	}
 
-	address := common.HexToAddress(node.WalletInfo.Address)
+	address := common.HexToAddress(wi.Address)
 
 	currentBalance, err := fundingWallet.BalanceNative(ctx, address)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
 	}
 
 	topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, currentBalance, token.Decimals)
 	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
-		// Node has enough in wallet, top up is not needed
+		// Top up is not needed, current balance is sufficient
 		return nil, nil
 	}
 
-	err = fundingWallet.TransferNative(ctx, cid, address, topUpAmount)
+	err = fundingWallet.TransferNative(ctx, wi.ChainID, address, topUpAmount)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithNativeCoin, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
 	}
 
 	return topUpAmount, nil
@@ -236,41 +302,39 @@ func transferSwarmToken(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	node kube.Node,
+	wi types.WalletInfo,
 ) (*big.Int, error) {
-	cid := node.WalletInfo.ChainID
-
-	token, err := wallet.SwarmTokenForChain(cid)
+	token, err := wallet.SwarmTokenForChain(wi.ChainID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
 	}
 
-	if !common.IsHexAddress(node.WalletInfo.Address) {
-		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningNodeWithSwarmToken)
+	if !common.IsHexAddress(wi.Address) {
+		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningWithSwarmToken)
 	}
 
-	address := common.HexToAddress(node.WalletInfo.Address)
+	address := common.HexToAddress(wi.Address)
 
 	currentBalance, err := fundingWallet.BalanceERC20(ctx, address, token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
 	}
 
 	topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, currentBalance, token.Decimals)
 	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
-		// Node has enough in wallet, top up is not needed
+		// Top up is not needed, current balance is sufficient
 		return nil, nil
 	}
 
-	err = fundingWallet.TransferERC20(ctx, cid, address, topUpAmount, token)
+	err = fundingWallet.TransferERC20(ctx, wi.ChainID, address, topUpAmount, token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningNodeWithSwarmToken, err)
+		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
 	}
 
 	return topUpAmount, nil
 }
 
-func CalcTopUpAmount(min float64, nodeAmount *big.Int, decimals int) *big.Int {
+func CalcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
 	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
 	minAmount := big.NewFloat(min)
@@ -281,7 +345,7 @@ func CalcTopUpAmount(min float64, nodeAmount *big.Int, decimals int) *big.Int {
 
 	minAmountInt, _ := minAmount.Int(big.NewInt(0))
 
-	return minAmountInt.Sub(minAmountInt, nodeAmount)
+	return minAmountInt.Sub(minAmountInt, currAmount)
 }
 
 func formatAmount(amount *big.Int, decimals int) string {
