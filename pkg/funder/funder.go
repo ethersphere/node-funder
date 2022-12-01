@@ -254,7 +254,7 @@ func mergeErrors(main error, errs ...error) error {
 	return nil
 }
 
-type transferResp struct {
+type topUpResp struct {
 	err               error
 	transferredAmount *big.Int
 }
@@ -265,13 +265,13 @@ func topUpWalletAsync(
 	fundingWallet wallet.TokenWallet,
 	minAmount float64,
 	wi types.WalletInfo,
-) <-chan transferResp {
-	respC := make(chan transferResp, 1)
+) <-chan topUpResp {
+	respC := make(chan topUpResp, 1)
 
 	go func() {
 		transferredAmount, err := topUpWallet(ctx, tokenInfoGetter, fundingWallet, minAmount, wi)
 
-		respC <- transferResp{
+		respC <- topUpResp{
 			transferredAmount: transferredAmount,
 			err:               err,
 		}
