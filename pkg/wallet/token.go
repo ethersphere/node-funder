@@ -44,6 +44,8 @@ var chainToNativeCoinMap = map[int64]Token{
 	},
 }
 
+type TokenInfoGetterFn = func(cid int64) (Token, error)
+
 func SwarmTokenForChain(cid int64) (Token, error) {
 	if t, ok := chainToSwarmTokenMap[cid]; ok {
 		return t, nil

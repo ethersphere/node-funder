@@ -80,7 +80,7 @@ func FundAddresses(cfg Config) error {
 
 	log.Printf("funding wallets (count=%d) up to amounts=%+v", len(wallets), cfg.MinAmounts)
 
-	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, wallets); ok {
+	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, wallets); !ok {
 		return fmt.Errorf("funding all wallets failed")
 	}
 
@@ -134,7 +134,7 @@ func fundAllWallets(
 			token, _ = wallet.SwarmTokenForChain(cid)
 			swarmAmount := formatAmount(resp.transferredSwarmAmount, token.Decimals)
 
-			log.Printf("%s funded - transferred native: %s, transferred swarm: %s ", name, nativeAmount, swarmAmount)
+			log.Printf("%s funded - transferred { native: %s, swarm: %s }", name, nativeAmount, swarmAmount)
 		}
 	}
 
@@ -189,32 +189,32 @@ type fundWalletResp struct {
 }
 
 var (
-	ErrFailedFunding               = errors.New("failed funding")
-	ErrFailedFudningWithSwarmToken = errors.New("failed funding with swarm token")
-	ErrFailedFudningWithNativeCoin = errors.New("failed funding with native coin")
+	ErrFailedFunding                = errors.New("failed funding")
+	ErrFailedFudningWithSwarmToken  = errors.New("failed funding with swarm token")
+	ErrFailedFudningWithNativeToken = errors.New("failed funding with native token")
 )
 
 func fundWallet(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	walletInfo types.WalletInfo,
+	wi types.WalletInfo,
 	fundWalletRespC chan<- fundWalletResp,
 ) {
-	transferNativeRespC := make(chan transferResp, 1)
-	transferSwarmRespC := make(chan transferResp, 1)
+	nativeResp := <-topUpWalletAsync(ctx, wallet.NativeCoinForChain, fundingWallet.Native(), minAmounts.NativeCoin, wi)
+	swarmResp := <-topUpWalletAsync(ctx, wallet.SwarmTokenForChain, fundingWallet.ERC20(), minAmounts.SwarmToken, wi)
 
-	go transferFunds(transferNativeCoin, ctx, fundingWallet, minAmounts, walletInfo, transferNativeRespC)
-	go transferFunds(transferSwarmToken, ctx, fundingWallet, minAmounts, walletInfo, transferSwarmRespC)
-
-	transferNativeResp := <-transferNativeRespC
-	transferSwarmResp := <-transferSwarmRespC
+	err := mergeErrors(
+		ErrFailedFunding,
+		mergeErrors(ErrFailedFudningWithNativeToken, nativeResp.err),
+		mergeErrors(ErrFailedFudningWithSwarmToken, swarmResp.err),
+	)
 
 	fundWalletRespC <- fundWalletResp{
-		wallet:                  walletInfo,
-		err:                     mergeErrors(ErrFailedFunding, transferNativeResp.err, transferSwarmResp.err),
-		transferredNativeAmount: transferNativeResp.transferredAmount,
-		transferredSwarmAmount:  transferSwarmResp.transferredAmount,
+		wallet:                  wi,
+		err:                     err,
+		transferredNativeAmount: nativeResp.transferredAmount,
+		transferredSwarmAmount:  swarmResp.transferredAmount,
 	}
 }
 
@@ -239,96 +239,59 @@ type transferResp struct {
 	transferredAmount *big.Int
 }
 
-func transferFunds(
-	transferFn transferFn,
+func topUpWalletAsync(
 	ctx context.Context,
-	fundingWallet *wallet.Wallet,
-	minAmounts MinAmounts,
+	tokenInfoGetter wallet.TokenInfoGetterFn,
+	fundingWallet wallet.TokenWallet,
+	minAmount float64,
 	wi types.WalletInfo,
-	transferRespC chan<- transferResp,
-) {
-	transferredAmount, err := transferFn(ctx, fundingWallet, minAmounts, wi)
+) <-chan transferResp {
+	respC := make(chan transferResp, 1)
 
-	transferRespC <- transferResp{
-		err:               err,
-		transferredAmount: transferredAmount,
-	}
+	go func() {
+		transferredAmount, err := topUpWallet(ctx, tokenInfoGetter, fundingWallet, minAmount, wi)
+
+		respC <- transferResp{
+			transferredAmount: transferredAmount,
+			err:               err,
+		}
+	}()
+
+	return respC
 }
 
-type transferFn = func(
+func topUpWallet(
 	ctx context.Context,
-	fundingWallet *wallet.Wallet,
-	minAmounts MinAmounts,
-	wi types.WalletInfo,
-) (*big.Int, error)
-
-func transferNativeCoin(
-	ctx context.Context,
-	fundingWallet *wallet.Wallet,
-	minAmounts MinAmounts,
+	tokenInfoGetter wallet.TokenInfoGetterFn,
+	fundingWallet wallet.TokenWallet,
+	minAmount float64,
 	wi types.WalletInfo,
 ) (*big.Int, error) {
-	token, err := wallet.NativeCoinForChain(wi.ChainID)
+	token, err := tokenInfoGetter(wi.ChainID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
+		return nil, err
 	}
 
 	if !common.IsHexAddress(wi.Address) {
-		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningWithNativeCoin)
+		return nil, fmt.Errorf("unexpected wallet address")
 	}
 
 	address := common.HexToAddress(wi.Address)
 
-	currentBalance, err := fundingWallet.BalanceNative(ctx, address)
+	currentBalance, err := fundingWallet.Balance(ctx, address, token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
+		return nil, err
 	}
 
-	topUpAmount := CalcTopUpAmount(minAmounts.NativeCoin, currentBalance, token.Decimals)
+	topUpAmount := CalcTopUpAmount(minAmount, currentBalance, token.Decimals)
 	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
 		// Top up is not needed, current balance is sufficient
 		return nil, nil
 	}
 
-	err = fundingWallet.TransferNative(ctx, wi.ChainID, address, topUpAmount)
+	err = fundingWallet.Transfer(ctx, wi.ChainID, address, topUpAmount, token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithNativeCoin, err)
-	}
-
-	return topUpAmount, nil
-}
-
-func transferSwarmToken(
-	ctx context.Context,
-	fundingWallet *wallet.Wallet,
-	minAmounts MinAmounts,
-	wi types.WalletInfo,
-) (*big.Int, error) {
-	token, err := wallet.SwarmTokenForChain(wi.ChainID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
-	}
-
-	if !common.IsHexAddress(wi.Address) {
-		return nil, fmt.Errorf("%w: unexpected wallet address", ErrFailedFudningWithSwarmToken)
-	}
-
-	address := common.HexToAddress(wi.Address)
-
-	currentBalance, err := fundingWallet.BalanceERC20(ctx, address, token)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
-	}
-
-	topUpAmount := CalcTopUpAmount(minAmounts.SwarmToken, currentBalance, token.Decimals)
-	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
-		// Top up is not needed, current balance is sufficient
-		return nil, nil
-	}
-
-	err = fundingWallet.TransferERC20(ctx, wi.ChainID, address, topUpAmount, token)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedFudningWithSwarmToken, err)
+		return nil, err
 	}
 
 	return topUpAmount, nil
