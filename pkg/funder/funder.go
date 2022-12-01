@@ -201,6 +201,18 @@ func fundWallet(
 	wi types.WalletInfo,
 	fundWalletRespC chan<- fundWalletResp,
 ) {
+	if cid, err := fundingWallet.CainID(ctx); err != nil {
+		fundWalletRespC <- fundWalletResp{
+			wallet: wi,
+			err:    fmt.Errorf("failed getting funding wallet's chain ID: %w", err),
+		}
+	} else if cid != wi.ChainID {
+		fundWalletRespC <- fundWalletResp{
+			wallet: wi,
+			err:    fmt.Errorf("wallet info chain ID (%d) does not match funding wallet chain ID (%d)", wi.ChainID, cid),
+		}
+	}
+
 	nativeResp := <-topUpWalletAsync(ctx, wallet.NativeCoinForChain, fundingWallet.Native(), minAmounts.NativeCoin, wi)
 	swarmResp := <-topUpWalletAsync(ctx, wallet.SwarmTokenForChain, fundingWallet.ERC20(), minAmounts.SwarmToken, wi)
 
@@ -289,7 +301,7 @@ func topUpWallet(
 		return nil, nil
 	}
 
-	err = fundingWallet.Transfer(ctx, wi.ChainID, address, topUpAmount, token)
+	err = fundingWallet.Transfer(ctx, address, topUpAmount, token)
 	if err != nil {
 		return nil, err
 	}

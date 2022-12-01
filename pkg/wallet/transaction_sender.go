@@ -7,7 +7,6 @@ package wallet
 import (
 	"context"
 	"crypto/ecdsa"
-	"errors"
 	"fmt"
 	"math/big"
 	"sync/atomic"
@@ -25,7 +24,6 @@ const DefaultBoostPercent = 30
 type TransactionSender interface {
 	Send(
 		ctx context.Context,
-		cid int64,
 		toAddr common.Address,
 		amount *big.Int,
 		callData []byte,
@@ -48,7 +46,6 @@ func newTransactionSender(client *ethclient.Client, key Key) TransactionSender {
 
 func (s *transactionSender) Send(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 	callData []byte,
@@ -56,10 +53,6 @@ func (s *transactionSender) Send(
 	chainID, err := s.client.NetworkID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get network id, %w", err)
-	}
-
-	if chainID.Int64() != cid {
-		return errors.New("wallet chain id does not match chain id for transfer")
 	}
 
 	_, publicKey, err := s.keys()

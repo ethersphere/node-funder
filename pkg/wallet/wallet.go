@@ -28,7 +28,6 @@ type TokenWallet interface {
 
 	Transfer(
 		ctx context.Context,
-		cid int64,
 		toAddr common.Address,
 		amount *big.Int,
 		token Token,
@@ -77,11 +76,10 @@ func (w *Wallet) BalanceNative(
 
 func (w *Wallet) TransferNative(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 ) error {
-	return w.native.Transfer(ctx, cid, toAddr, amount, Token{})
+	return w.native.Transfer(ctx, toAddr, amount, Token{})
 }
 
 func (w *Wallet) BalanceERC20(
@@ -94,12 +92,11 @@ func (w *Wallet) BalanceERC20(
 
 func (w *Wallet) TransferERC20(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 	token Token,
 ) error {
-	return w.erc20.Transfer(ctx, cid, toAddr, amount, token)
+	return w.erc20.Transfer(ctx, toAddr, amount, token)
 }
 
 type nativeWallet struct {
@@ -119,12 +116,11 @@ func newNativeWallet(
 
 func (w *nativeWallet) Transfer(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 	token Token,
 ) error {
-	err := w.trxSender.Send(ctx, cid, toAddr, amount, nil)
+	err := w.trxSender.Send(ctx, toAddr, amount, nil)
 	if err != nil {
 		return fmt.Errorf("failed to make native token transfer, %w", err)
 	}
@@ -184,7 +180,6 @@ func (w *erc20Wallet) Balance(
 
 func (w *erc20Wallet) Transfer(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 	token Token,
@@ -194,7 +189,7 @@ func (w *erc20Wallet) Transfer(
 		return fmt.Errorf("failed to pack abi, %w", err)
 	}
 
-	err = w.trxSender.Send(ctx, cid, token.Contract, nil, callData)
+	err = w.trxSender.Send(ctx, token.Contract, nil, callData)
 	if err != nil {
 		return fmt.Errorf("failed to make ERC20 token transfer, %w", err)
 	}
