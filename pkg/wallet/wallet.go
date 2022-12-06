@@ -6,40 +6,47 @@ package wallet
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"errors"
 	"fmt"
 	"math/big"
 	"strings"
-	"sync/atomic"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethersphere/go-sw3-abi/sw3abi"
 )
 
 var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
 
-const (
-	DefaultBoostPercent = 30
-)
+type TokenWallet interface {
+	Balance(
+		ctx context.Context,
+		addr common.Address,
+		token Token,
+	) (*big.Int, error)
+
+	Transfer(
+		ctx context.Context,
+		toAddr common.Address,
+		amount *big.Int,
+		token Token,
+	) error
+}
 
 type Wallet struct {
 	client *ethclient.Client
-	key    Key
-	trxNo  *atomic.Int64
+	native TokenWallet
+	erc20  TokenWallet
 }
 
 func New(client *ethclient.Client, key Key) *Wallet {
+	trxSender := newTransactionSender(client, key)
+
 	return &Wallet{
 		client: client,
-		key:    key,
-		trxNo:  &atomic.Int64{},
+		native: newNativeWallet(client, trxSender),
+		erc20:  newERC20Wallet(client, trxSender),
 	}
 }
 
@@ -52,28 +59,98 @@ func (w *Wallet) CainID(ctx context.Context) (int64, error) {
 	return id.Int64(), nil
 }
 
-func (w *Wallet) TransferNative(
-	ctx context.Context,
-	cid int64,
-	toAddr common.Address,
-	amount *big.Int,
-) error {
-	err := w.sendTransaction(ctx, cid, toAddr, amount, nil)
-	if err != nil {
-		return fmt.Errorf("failed to make native coin transfer, %w", err)
-	}
+func (w *Wallet) Native() TokenWallet {
+	return w.native
+}
 
-	return nil
+func (w *Wallet) ERC20() TokenWallet {
+	return w.erc20
 }
 
 func (w *Wallet) BalanceNative(
 	ctx context.Context,
 	addr common.Address,
 ) (*big.Int, error) {
-	return w.client.BalanceAt(ctx, addr, nil)
+	return w.native.Balance(ctx, addr, Token{})
+}
+
+func (w *Wallet) TransferNative(
+	ctx context.Context,
+	toAddr common.Address,
+	amount *big.Int,
+) error {
+	return w.native.Transfer(ctx, toAddr, amount, Token{})
 }
 
 func (w *Wallet) BalanceERC20(
+	ctx context.Context,
+	addr common.Address,
+	token Token,
+) (*big.Int, error) {
+	return w.erc20.Balance(ctx, addr, token)
+}
+
+func (w *Wallet) TransferERC20(
+	ctx context.Context,
+	toAddr common.Address,
+	amount *big.Int,
+	token Token,
+) error {
+	return w.erc20.Transfer(ctx, toAddr, amount, token)
+}
+
+type nativeWallet struct {
+	client    *ethclient.Client
+	trxSender TransactionSender
+}
+
+func newNativeWallet(
+	client *ethclient.Client,
+	trxSender TransactionSender,
+) *nativeWallet {
+	return &nativeWallet{
+		client:    client,
+		trxSender: trxSender,
+	}
+}
+
+func (w *nativeWallet) Transfer(
+	ctx context.Context,
+	toAddr common.Address,
+	amount *big.Int,
+	token Token,
+) error {
+	err := w.trxSender.Send(ctx, toAddr, amount, nil)
+	if err != nil {
+		return fmt.Errorf("failed to make native token transfer, %w", err)
+	}
+
+	return nil
+}
+
+func (w *nativeWallet) Balance(
+	ctx context.Context,
+	addr common.Address,
+	token Token,
+) (*big.Int, error) {
+	return w.client.BalanceAt(ctx, addr, nil)
+}
+
+type erc20Wallet struct {
+	client    *ethclient.Client
+	trxSender TransactionSender
+}
+
+func newERC20Wallet(client *ethclient.Client,
+	trxSender TransactionSender,
+) *erc20Wallet {
+	return &erc20Wallet{
+		client:    client,
+		trxSender: trxSender,
+	}
+}
+
+func (w *erc20Wallet) Balance(
 	ctx context.Context,
 	addr common.Address,
 	token Token,
@@ -101,9 +178,8 @@ func (w *Wallet) BalanceERC20(
 	return balance, nil
 }
 
-func (w *Wallet) TransferERC20(
+func (w *erc20Wallet) Transfer(
 	ctx context.Context,
-	cid int64,
 	toAddr common.Address,
 	amount *big.Int,
 	token Token,
@@ -113,170 +189,12 @@ func (w *Wallet) TransferERC20(
 		return fmt.Errorf("failed to pack abi, %w", err)
 	}
 
-	err = w.sendTransaction(ctx, cid, token.Contract, nil, callData)
+	err = w.trxSender.Send(ctx, token.Contract, nil, callData)
 	if err != nil {
 		return fmt.Errorf("failed to make ERC20 token transfer, %w", err)
 	}
 
 	return nil
-}
-
-func (w *Wallet) sendTransaction(
-	ctx context.Context,
-	cid int64,
-	toAddr common.Address,
-	amount *big.Int,
-	callData []byte,
-) error {
-	chainID, err := w.client.NetworkID(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get network id, %w", err)
-	}
-
-	if chainID.Int64() != cid {
-		return errors.New("wallet chain id does not match chain id for transfer")
-	}
-
-	_, publicKey, err := w.keys()
-	if err != nil {
-		return fmt.Errorf("failed to get wallet keys, %w", err)
-	}
-
-	fromAddress := crypto.PubkeyToAddress(*publicKey)
-
-	nonce, err := w.nonce(ctx, fromAddress)
-	if err != nil {
-		return fmt.Errorf("failed to make nonce, %w", err)
-	}
-
-	gas, gasFeeCap, gasTipCap, err := w.calculateGas(ctx, ethereum.CallMsg{
-		From: fromAddress,
-		To:   &toAddr,
-		Data: callData,
-	})
-	if err != nil {
-		return err
-	}
-
-	tx := types.NewTx(&types.DynamicFeeTx{
-		Nonce:     nonce,
-		ChainID:   chainID,
-		To:        &toAddr,
-		Value:     amount,
-		Gas:       gas,
-		GasFeeCap: gasFeeCap,
-		GasTipCap: gasTipCap,
-		Data:      callData,
-	})
-
-	signedTx, err := w.signTx(tx, chainID)
-	if err != nil {
-		return fmt.Errorf("failed to sign transaction, %w", err)
-	}
-
-	err = w.client.SendTransaction(ctx, signedTx)
-	if err != nil {
-		return fmt.Errorf("failed to send transaction, %w", err)
-	}
-
-	return nil
-}
-
-func (w *Wallet) calculateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, *big.Int, *big.Int, error) {
-	gas, err := w.client.EstimateGas(ctx, msg)
-	if err != nil {
-		return 0, nil, nil, err
-	}
-
-	gas *= 1 + (DefaultBoostPercent / 100)
-
-	gasFeeCap, gasTipCap, err := w.suggestedFeeAndTip(ctx, DefaultBoostPercent)
-	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to get suggested gas price, %w", err)
-	}
-
-	return gas, gasFeeCap, gasTipCap, nil
-}
-
-func (w *Wallet) suggestedFeeAndTip(ctx context.Context, boostPercent int) (*big.Int, *big.Int, error) {
-	var err error
-
-	gasPrice, err := w.client.SuggestGasPrice(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	gasTipCap, err := w.client.SuggestGasTipCap(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	gasTipCap = new(big.Int).Div(new(big.Int).Mul(big.NewInt(int64(boostPercent)+100), gasTipCap), big.NewInt(100))
-	gasPrice = new(big.Int).Div(new(big.Int).Mul(big.NewInt(int64(boostPercent)+100), gasPrice), big.NewInt(100))
-	gasFeeCap := new(big.Int).Add(gasTipCap, gasPrice)
-
-	return gasFeeCap, gasTipCap, nil
-}
-
-func (w *Wallet) signTx(transaction *types.Transaction, chainID *big.Int) (*types.Transaction, error) {
-	txSigner := types.NewLondonSigner(chainID)
-	hash := txSigner.Hash(transaction).Bytes()
-
-	// isCompressedKey is false here so we get the expected v value (27 or 28)
-	signature, err := w.sign(hash, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// v value needs to be adjusted by 27 as transaction.WithSignature expects it to be 0 or 1
-	signature[64] -= 27
-
-	return transaction.WithSignature(txSigner, signature)
-}
-
-// sign the provided hash and convert it to the ethereum (r,s,v) format.
-func (w *Wallet) sign(sighash []byte, isCompressedKey bool) ([]byte, error) {
-	privateECDSA, err := w.key.PrivateECDSA()
-	if err != nil {
-		return nil, err
-	}
-
-	signature, err := btcec.SignCompact(btcec.S256(), (*btcec.PrivateKey)(privateECDSA), sighash, false)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to Ethereum signature format with 'recovery id' v at the end.
-	v := signature[0]
-	copy(signature, signature[1:])
-	signature[64] = v
-
-	return signature, nil
-}
-
-func (w *Wallet) nonce(ctx context.Context, addr common.Address) (uint64, error) {
-	nonce, err := w.client.PendingNonceAt(ctx, addr)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get nonce, %w", err)
-	}
-
-	nonce += uint64(w.trxNo.Add(1) - 1)
-
-	return nonce, nil
-}
-
-func (w *Wallet) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
-	privateKey, err := w.key.PrivateECDSA()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	publicKeyECDSA, err := w.key.PublicECDSA()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return privateKey, publicKeyECDSA, nil
 }
 
 func mustParseABI(json string) abi.ABI {
