@@ -9,7 +9,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
-	"sync/atomic"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/ethereum/go-ethereum"
@@ -19,7 +19,10 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-const DefaultBoostPercent = 30
+const (
+	defaultBoostPercent = 30
+	txSendMaxRetries    = 3
+)
 
 type TransactionSender interface {
 	Send(
@@ -31,16 +34,16 @@ type TransactionSender interface {
 }
 
 type transactionSender struct {
-	client *ethclient.Client
-	key    Key
-	trxNo  *atomic.Int64
+	client    *ethclient.Client
+	key       Key
+	nonceLock sync.Mutex
+	nonceLast uint64
 }
 
 func newTransactionSender(client *ethclient.Client, key Key) TransactionSender {
 	return &transactionSender{
 		client: client,
 		key:    key,
-		trxNo:  &atomic.Int64{},
 	}
 }
 
@@ -62,13 +65,34 @@ func (s *transactionSender) Send(
 
 	fromAddress := crypto.PubkeyToAddress(*publicKey)
 
-	nonce, err := s.nonce(ctx, fromAddress)
+	for i := 0; i < txSendMaxRetries; i++ {
+		err = s.send(ctx, chainID, toAddr, fromAddress, amount, callData)
+		if err != nil && err.Error() == "replacement transaction underpriced" {
+			s.clearNonce()
+			continue
+		}
+
+		return err
+	}
+
+	return err
+}
+
+func (s *transactionSender) send(
+	ctx context.Context,
+	chainID *big.Int,
+	toAddr common.Address,
+	fromAddr common.Address,
+	amount *big.Int,
+	callData []byte,
+) error {
+	nonce, err := s.nonce(ctx, fromAddr)
 	if err != nil {
 		return fmt.Errorf("failed to make nonce, %w", err)
 	}
 
 	gas, gasFeeCap, gasTipCap, err := s.calculateGas(ctx, ethereum.CallMsg{
-		From: fromAddress,
+		From: fromAddr,
 		To:   &toAddr,
 		Data: callData,
 	})
@@ -106,9 +130,9 @@ func (s *transactionSender) calculateGas(ctx context.Context, msg ethereum.CallM
 		return 0, nil, nil, err
 	}
 
-	gas *= 1 + (DefaultBoostPercent / 100)
+	gas *= 1 + (defaultBoostPercent / 100)
 
-	gasFeeCap, gasTipCap, err := s.suggestedFeeAndTip(ctx, DefaultBoostPercent)
+	gasFeeCap, gasTipCap, err := s.suggestedFeeAndTip(ctx, defaultBoostPercent)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("failed to get suggested gas price, %w", err)
 	}
@@ -173,14 +197,28 @@ func (s *transactionSender) sign(sighash []byte, isCompressedKey bool) ([]byte, 
 }
 
 func (s *transactionSender) nonce(ctx context.Context, addr common.Address) (uint64, error) {
-	nonce, err := s.client.PendingNonceAt(ctx, addr)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get nonce, %w", err)
+	s.nonceLock.Lock()
+	defer s.nonceLock.Unlock()
+
+	if s.nonceLast == 0 {
+		nonce, err := s.client.PendingNonceAt(ctx, addr)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get nonce, %w", err)
+		}
+
+		s.nonceLast = nonce
+	} else {
+		s.nonceLast += 1
 	}
 
-	nonce += uint64(s.trxNo.Add(1) - 1)
+	return s.nonceLast, nil
+}
 
-	return nonce, nil
+func (s *transactionSender) clearNonce() {
+	s.nonceLock.Lock()
+	defer s.nonceLock.Unlock()
+
+	s.nonceLast = 0
 }
 
 func (s *transactionSender) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
