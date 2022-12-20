@@ -17,29 +17,31 @@ type Token struct {
 }
 
 var chainToSwarmTokenMap = map[int64]Token{
-	// Goerli (testnet)
+	// Testnet
 	5: {
 		Contract: common.HexToAddress("0x2aC3c1d3e24b45c6C310534Bc2Dd84B5ed576335"),
 		Symbol:   "gBZZ",
 		Decimals: 16,
 	},
 
-	// Gnosis Chain
+	// Mainnet
 	100: {
-		Contract: common.HexToAddress("0xdBF3Ea6F5beE45c02255B2c26a16F300502F68da"),
-		Symbol:   "xBZZ",
+		Contract: common.HexToAddress("0x19062190b1925b5b6689d7073fdfc8c2976ef8cb"),
+		Symbol:   "BZZ",
 		Decimals: 16,
 	},
 }
 
 var chainToNativeCoinMap = map[int64]Token{
-	// Goerli (testnet)
+	// Testnet
 	5: {
+		Symbol:   "ETH",
 		Decimals: 18,
 	},
 
-	// Gnosis Chain
+	// Mainnet
 	100: {
+		Symbol:   "ETH",
 		Decimals: 18,
 	},
 }
