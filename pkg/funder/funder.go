@@ -20,19 +20,17 @@ import (
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
-func Fund(cfg Config) error {
+func Fund(ctx context.Context, cfg Config) error {
 	if cfg.Namespace != "" {
-		return FundNamespace(cfg)
+		return FundNamespace(ctx, cfg)
 	}
 
-	return FundAddresses(cfg)
+	return FundAddresses(ctx, cfg)
 }
 
-func FundNamespace(cfg Config) error {
+func FundNamespace(ctx context.Context, cfg Config) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
-
-	ctx := context.Background()
 
 	fundingWallet, err := makeFundingWallet(ctx, cfg)
 	if err != nil {
@@ -60,11 +58,9 @@ func FundNamespace(cfg Config) error {
 	return nil
 }
 
-func FundAddresses(cfg Config) error {
+func FundAddresses(ctx context.Context, cfg Config) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
-
-	ctx := context.Background()
 
 	fundingWallet, err := makeFundingWallet(ctx, cfg)
 	if err != nil {
