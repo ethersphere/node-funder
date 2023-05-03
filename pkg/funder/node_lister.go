@@ -1,3 +1,7 @@
+// Copyright 2023 The Swarm Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package funder
 
 import (
@@ -43,7 +47,7 @@ type nodeLister struct {
 func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, error) {
 	pods, err := nl.client.Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed listing pods: %v", err)
+		return nil, fmt.Errorf("failed listing pods: %w", err)
 	}
 
 	result := make([]NodeInfo, 0, len(pods.Items))
@@ -54,7 +58,7 @@ func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, e
 		})
 	}
 
-	return nil, nil
+	return result, nil
 }
 
 type walletInfoResponse struct {

@@ -18,6 +18,7 @@ func main() {
 	}
 
 	ctx := context.Background()
+
 	nl, err := funder.NewNodeLister()
 	if err != nil {
 		log.Fatalf("could not create node lister: %v", err)
