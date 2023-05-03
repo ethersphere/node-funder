@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
@@ -86,7 +87,9 @@ func FetchNamespaceNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client
 
 	for i := 0; i < len(pods.Items); i++ {
 		res := <-walletInfoResponseC
-		if res.Error == nil {
+		if res.Error != nil {
+			log.Printf("wallet info error: %s\n", res.Error.Error())
+		} else {
 			nodeWallets = append(nodeWallets, res.WalletInfo)
 		}
 	}
