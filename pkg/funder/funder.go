@@ -15,20 +15,18 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethersphere/node-funder/pkg/kube"
-	"github.com/ethersphere/node-funder/pkg/types"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
-func Fund(ctx context.Context, cfg Config) error {
+func Fund(ctx context.Context, cfg Config, nl NodeLister) error {
 	if cfg.Namespace != "" {
-		return FundNamespace(ctx, cfg)
+		return FundNamespace(ctx, cfg, nl)
 	}
 
 	return FundAddresses(ctx, cfg)
 }
 
-func FundNamespace(ctx context.Context, cfg Config) error {
+func FundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
@@ -37,14 +35,9 @@ func FundNamespace(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("failed to make funding wallet: %w", err)
 	}
 
-	kubeClient, err := kube.NewKube()
-	if err != nil {
-		return fmt.Errorf("connecting kube client failed: %w", err)
-	}
-
 	log.Printf("fetchin nodes for namespace=%s", cfg.Namespace)
 
-	namespace, err := kube.FetchNamespaceNodeInfo(ctx, kubeClient, cfg.Namespace)
+	namespace, err := FetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
@@ -83,10 +76,10 @@ func FundAddresses(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func makeWalletInfoFromAddresses(addrs []string, cid int64) []types.WalletInfo {
-	result := make([]types.WalletInfo, 0, len(addrs))
+func makeWalletInfoFromAddresses(addrs []string, cid int64) []WalletInfo {
+	result := make([]WalletInfo, 0, len(addrs))
 	for _, addr := range addrs {
-		result = append(result, types.WalletInfo{
+		result = append(result, WalletInfo{
 			Name:    fmt.Sprintf("wallet (address=%s)", addr),
 			ChainID: cid,
 			Address: addr,
@@ -100,7 +93,7 @@ func fundAllWallets(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	wallets []types.WalletInfo,
+	wallets []WalletInfo,
 ) bool {
 	fundWalletRespC := make([]<-chan fundWalletResp, len(wallets))
 	for i, wi := range wallets {
@@ -178,7 +171,7 @@ func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, err
 }
 
 type fundWalletResp struct {
-	wallet                  types.WalletInfo
+	wallet                  WalletInfo
 	err                     error
 	transferredNativeAmount *big.Int
 	transferredSwarmAmount  *big.Int
@@ -194,7 +187,7 @@ func fundWalletAsync(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) <-chan fundWalletResp {
 	respC := make(chan fundWalletResp, 1)
 
@@ -224,7 +217,7 @@ func fundWalletAsync(
 	return respC
 }
 
-func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi types.WalletInfo) error {
+func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi WalletInfo) error {
 	if cid, err := fundingWallet.CainID(ctx); err != nil {
 		return fmt.Errorf("failed getting funding wallet's chain ID: %w", err)
 	} else if cid != wi.ChainID {
@@ -260,7 +253,7 @@ func topUpWalletAsync(
 	tokenInfoGetter wallet.TokenInfoGetterFn,
 	fundingWallet wallet.TokenWallet,
 	minAmount float64,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) <-chan topUpResp {
 	respC := make(chan topUpResp, 1)
 
@@ -281,7 +274,7 @@ func topUpWallet(
 	tokenInfoGetter wallet.TokenInfoGetterFn,
 	fundingWallet wallet.TokenWallet,
 	minAmount float64,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) (*big.Int, error) {
 	token, err := tokenInfoGetter(wi.ChainID)
 	if err != nil {
