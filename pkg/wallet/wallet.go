@@ -50,7 +50,7 @@ func New(client *ethclient.Client, key Key) *Wallet {
 	}
 }
 
-func (w *Wallet) CainID(ctx context.Context) (int64, error) {
+func (w *Wallet) ChainID(ctx context.Context) (int64, error) {
 	id, err := w.client.NetworkID(ctx)
 	if err != nil {
 		return 0, err

@@ -17,8 +17,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-
-	"github.com/ethersphere/node-funder/pkg/util"
 )
 
 const (
@@ -131,7 +129,7 @@ func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister
 }
 
 func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
-	response, err := util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint), nil)
+	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint))
 	if err != nil {
 		return WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
 	}

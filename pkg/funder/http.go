@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package util
+package funder
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"net/http"
 )
 
-func SendHTTPRequest(ctx context.Context, method, endpoint string, body io.Reader) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
+func sendHTTPRequest(ctx context.Context, method, endpoint string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

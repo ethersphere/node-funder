@@ -19,8 +19,8 @@ type Config struct {
 }
 
 type MinAmounts struct {
-	NativeCoin float64 // on mainnet this is ETH
-	SwarmToken float64 // on mainnet this is BZZ
+	NativeCoin float64 // on mainnet this is xDAI
+	SwarmToken float64 // on mainnet this is xBZZ
 }
 
 func ParseConfig() (Config, error) {
@@ -28,12 +28,12 @@ func ParseConfig() (Config, error) {
 
 	var addressesStr string
 
-	flag.StringVar(&cfg.Namespace, "namespace", "", "kuberneties namespace")
+	flag.StringVar(&cfg.Namespace, "namespace", "", "kubernetes namespace")
 	flag.StringVar(&addressesStr, "addresses", "", "wallet addresses")
 	flag.StringVar(&cfg.ChainNodeEndpoint, "chainNodeEndpoint", "", "endpoint to chain node")
 	flag.StringVar(&cfg.WalletKey, "walletKey", "", "wallet key")
-	flag.Float64Var(&cfg.MinAmounts.NativeCoin, "minNative", 0, "specifies min amout of chain native coins (ETH) nodes should have")
-	flag.Float64Var(&cfg.MinAmounts.SwarmToken, "minSwarm", 0, "specifies min amout of swarm tokens (BZZ) nodes should have")
+	flag.Float64Var(&cfg.MinAmounts.NativeCoin, "minNative", 0, "specifies min amount of chain native coins (xDAI) nodes should have")
+	flag.Float64Var(&cfg.MinAmounts.SwarmToken, "minSwarm", 0, "specifies min amount of swarm tokens (xBZZ) nodes should have")
 	flag.Parse()
 
 	cfg.Addresses = parseAddresses(addressesStr)

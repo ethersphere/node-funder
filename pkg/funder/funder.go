@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -60,7 +59,7 @@ func FundAddresses(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("failed to make funding wallet: %w", err)
 	}
 
-	cid, err := fundingWallet.CainID(ctx)
+	cid, err := fundingWallet.ChainID(ctx)
 	if err != nil {
 		return err
 	}
@@ -179,8 +178,8 @@ type fundWalletResp struct {
 
 var (
 	ErrFailedFunding                = errors.New("failed funding")
-	ErrFailedFudningWithSwarmToken  = errors.New("failed funding with swarm token")
-	ErrFailedFudningWithNativeToken = errors.New("failed funding with native token")
+	ErrFailedFundingWithSwarmToken  = errors.New("failed funding with swarm token")
+	ErrFailedFundingWithNativeToken = errors.New("failed funding with native token")
 )
 
 func fundWalletAsync(
@@ -202,8 +201,8 @@ func fundWalletAsync(
 
 		err := mergeErrors(
 			ErrFailedFunding,
-			mergeErrors(ErrFailedFudningWithNativeToken, nativeResp.err),
-			mergeErrors(ErrFailedFudningWithSwarmToken, swarmResp.err),
+			mergeErrors(ErrFailedFundingWithNativeToken, nativeResp.err),
+			mergeErrors(ErrFailedFundingWithSwarmToken, swarmResp.err),
 		)
 
 		respC <- fundWalletResp{
@@ -217,27 +216,21 @@ func fundWalletAsync(
 	return respC
 }
 
+func mergeErrors(main error, err ...error) error {
+	if len(err) == 0 {
+		return nil
+	}
+
+	err = append([]error{main}, err...)
+
+	return errors.Join(err...)
+}
+
 func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi WalletInfo) error {
-	if cid, err := fundingWallet.CainID(ctx); err != nil {
+	if cid, err := fundingWallet.ChainID(ctx); err != nil {
 		return fmt.Errorf("failed getting funding wallet's chain ID: %w", err)
 	} else if cid != wi.ChainID {
 		return fmt.Errorf("wallet info chain ID (%d) does not match funding wallet chain ID (%d)", wi.ChainID, cid)
-	}
-
-	return nil
-}
-
-func mergeErrors(main error, errs ...error) error {
-	var errorMsg []string
-
-	for _, err := range errs {
-		if err != nil {
-			errorMsg = append(errorMsg, err.Error())
-		}
-	}
-
-	if len(errorMsg) > 0 {
-		return fmt.Errorf("%w, reason: %s", ErrFailedFunding, strings.Join(errorMsg, ", "))
 	}
 
 	return nil
