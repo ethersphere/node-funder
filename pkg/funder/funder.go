@@ -19,13 +19,13 @@ import (
 
 func Fund(ctx context.Context, cfg Config, nl NodeLister) error {
 	if cfg.Namespace != "" {
-		return FundNamespace(ctx, cfg, nl)
+		return fundNamespace(ctx, cfg, nl)
 	}
 
-	return FundAddresses(ctx, cfg)
+	return fundAddresses(ctx, cfg)
 }
 
-func FundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
+func fundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
@@ -50,7 +50,7 @@ func FundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
 	return nil
 }
 
-func FundAddresses(ctx context.Context, cfg Config) error {
+func fundAddresses(ctx context.Context, cfg Config) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 

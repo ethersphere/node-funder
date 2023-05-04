@@ -4,14 +4,21 @@ jobs:
   test:
     strategy:
       matrix:
-        go-version: [1.19]
+        go-version: [1.20]
     name: test
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v2
-      - uses: actions/setup-go@v2
+        uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
         with:
           go-version: ${{ matrix.go-version }}
       - name: test (race detector)
         run: go test -timeout=30s -race -count=10 -failfast ./...
+      - name: generate coverage
+        run: go test ./... -coverprofile=./cover.out -covermode=atomic
+      - name: check test coverage
+        id: coverage
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.github/testcoverage.yml
