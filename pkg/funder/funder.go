@@ -10,25 +10,22 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethersphere/node-funder/pkg/kube"
-	"github.com/ethersphere/node-funder/pkg/types"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
-func Fund(ctx context.Context, cfg Config) error {
+func Fund(ctx context.Context, cfg Config, nl NodeLister) error {
 	if cfg.Namespace != "" {
-		return FundNamespace(ctx, cfg)
+		return fundNamespace(ctx, cfg, nl)
 	}
 
-	return FundAddresses(ctx, cfg)
+	return fundAddresses(ctx, cfg)
 }
 
-func FundNamespace(ctx context.Context, cfg Config) error {
+func fundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
@@ -37,14 +34,9 @@ func FundNamespace(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("failed to make funding wallet: %w", err)
 	}
 
-	kubeClient, err := kube.NewKube()
-	if err != nil {
-		return fmt.Errorf("connecting kube client failed: %w", err)
-	}
-
 	log.Printf("fetchin nodes for namespace=%s", cfg.Namespace)
 
-	namespace, err := kube.FetchNamespaceNodeInfo(ctx, kubeClient, cfg.Namespace)
+	namespace, err := FetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
@@ -58,7 +50,7 @@ func FundNamespace(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func FundAddresses(ctx context.Context, cfg Config) error {
+func fundAddresses(ctx context.Context, cfg Config) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
@@ -67,7 +59,7 @@ func FundAddresses(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("failed to make funding wallet: %w", err)
 	}
 
-	cid, err := fundingWallet.CainID(ctx)
+	cid, err := fundingWallet.ChainID(ctx)
 	if err != nil {
 		return err
 	}
@@ -83,10 +75,10 @@ func FundAddresses(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func makeWalletInfoFromAddresses(addrs []string, cid int64) []types.WalletInfo {
-	result := make([]types.WalletInfo, 0, len(addrs))
+func makeWalletInfoFromAddresses(addrs []string, cid int64) []WalletInfo {
+	result := make([]WalletInfo, 0, len(addrs))
 	for _, addr := range addrs {
-		result = append(result, types.WalletInfo{
+		result = append(result, WalletInfo{
 			Name:    fmt.Sprintf("wallet (address=%s)", addr),
 			ChainID: cid,
 			Address: addr,
@@ -100,7 +92,7 @@ func fundAllWallets(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	wallets []types.WalletInfo,
+	wallets []WalletInfo,
 ) bool {
 	fundWalletRespC := make([]<-chan fundWalletResp, len(wallets))
 	for i, wi := range wallets {
@@ -178,7 +170,7 @@ func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, err
 }
 
 type fundWalletResp struct {
-	wallet                  types.WalletInfo
+	wallet                  WalletInfo
 	err                     error
 	transferredNativeAmount *big.Int
 	transferredSwarmAmount  *big.Int
@@ -186,15 +178,15 @@ type fundWalletResp struct {
 
 var (
 	ErrFailedFunding                = errors.New("failed funding")
-	ErrFailedFudningWithSwarmToken  = errors.New("failed funding with swarm token")
-	ErrFailedFudningWithNativeToken = errors.New("failed funding with native token")
+	ErrFailedFundingWithSwarmToken  = errors.New("failed funding with swarm token")
+	ErrFailedFundingWithNativeToken = errors.New("failed funding with native token")
 )
 
 func fundWalletAsync(
 	ctx context.Context,
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) <-chan fundWalletResp {
 	respC := make(chan fundWalletResp, 1)
 
@@ -209,8 +201,8 @@ func fundWalletAsync(
 
 		err := mergeErrors(
 			ErrFailedFunding,
-			mergeErrors(ErrFailedFudningWithNativeToken, nativeResp.err),
-			mergeErrors(ErrFailedFudningWithSwarmToken, swarmResp.err),
+			mergeErrors(ErrFailedFundingWithNativeToken, nativeResp.err),
+			mergeErrors(ErrFailedFundingWithSwarmToken, swarmResp.err),
 		)
 
 		respC <- fundWalletResp{
@@ -224,27 +216,21 @@ func fundWalletAsync(
 	return respC
 }
 
-func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi types.WalletInfo) error {
-	if cid, err := fundingWallet.CainID(ctx); err != nil {
+func mergeErrors(main error, err ...error) error {
+	if len(err) == 0 {
+		return nil
+	}
+
+	err = append([]error{main}, err...)
+
+	return errors.Join(err...)
+}
+
+func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi WalletInfo) error {
+	if cid, err := fundingWallet.ChainID(ctx); err != nil {
 		return fmt.Errorf("failed getting funding wallet's chain ID: %w", err)
 	} else if cid != wi.ChainID {
 		return fmt.Errorf("wallet info chain ID (%d) does not match funding wallet chain ID (%d)", wi.ChainID, cid)
-	}
-
-	return nil
-}
-
-func mergeErrors(main error, errs ...error) error {
-	var errorMsg []string
-
-	for _, err := range errs {
-		if err != nil {
-			errorMsg = append(errorMsg, err.Error())
-		}
-	}
-
-	if len(errorMsg) > 0 {
-		return fmt.Errorf("%w, reason: %s", ErrFailedFunding, strings.Join(errorMsg, ", "))
 	}
 
 	return nil
@@ -260,7 +246,7 @@ func topUpWalletAsync(
 	tokenInfoGetter wallet.TokenInfoGetterFn,
 	fundingWallet wallet.TokenWallet,
 	minAmount float64,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) <-chan topUpResp {
 	respC := make(chan topUpResp, 1)
 
@@ -281,7 +267,7 @@ func topUpWallet(
 	tokenInfoGetter wallet.TokenInfoGetterFn,
 	fundingWallet wallet.TokenWallet,
 	minAmount float64,
-	wi types.WalletInfo,
+	wi WalletInfo,
 ) (*big.Int, error) {
 	token, err := tokenInfoGetter(wi.ChainID)
 	if err != nil {

@@ -1,39 +1,70 @@
-// Copyright 2022 The Swarm Authors. All rights reserved.
+// Copyright 2023 The Swarm Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package kube
+package funder
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/clientcmd/api"
-
-	"github.com/ethersphere/node-funder/pkg/types"
-	"github.com/ethersphere/node-funder/pkg/util"
 )
 
 const (
 	beeWalletEndpoint = "/wallet"
 )
 
+type NodeLister interface {
+	List(ctx context.Context, namespace string) ([]NodeInfo, error)
+}
+
+func NewNodeLister() (NodeLister, error) {
+	client, err := newKube()
+	if err != nil {
+		return nil, err
+	}
+
+	return &nodeLister{
+		client: client,
+	}, nil
+}
+
+type nodeLister struct {
+	client *corev1client.CoreV1Client
+}
+
+func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, error) {
+	pods, err := nl.client.Pods(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed listing pods: %w", err)
+	}
+
+	result := make([]NodeInfo, 0, len(pods.Items))
+	for _, pod := range pods.Items {
+		result = append(result, NodeInfo{
+			Name:    pod.Name,
+			Address: pod.Status.PodIP,
+		})
+	}
+
+	return result, nil
+}
+
 type walletInfoResponse struct {
-	WalletInfo types.WalletInfo
+	WalletInfo WalletInfo
 	Error      error
 }
 
-func NewKube() (*corev1client.CoreV1Client, error) {
+func newKube() (*corev1client.CoreV1Client, error) {
 	config, err := makeConfig()
 	if err != nil {
 		return nil, fmt.Errorf("get configuration failed: %w", err)
@@ -60,50 +91,47 @@ func makeConfig() (*rest.Config, error) {
 		&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}).ClientConfig()
 }
 
-func FetchNamespaceNodeInfo(ctx context.Context, kube *corev1client.CoreV1Client, namespace string) (*types.NamespaceNodes, error) {
-	// List all Pods in our current Namespace.
-	pods, err := kube.Pods(namespace).List(ctx, metav1.ListOptions{})
+func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister) (NamespaceNodes, error) {
+	nodes, err := nl.List(ctx, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("listing pod failed: %w", err)
+		return NamespaceNodes{}, fmt.Errorf("listing nodes failed: %w", err)
 	}
 
-	walletInfoResponseC := make(chan walletInfoResponse, len(pods.Items))
+	walletInfoResponseC := make(chan walletInfoResponse, len(nodes))
 
-	for _, pod := range pods.Items {
-		go func(pod v1.Pod) {
-			wi, err := FetchWalletInfo(ctx, pod.Status.PodIP)
+	for _, nodeInfo := range nodes {
+		go func(nodeInfo NodeInfo) {
+			wi, err := FetchWalletInfo(ctx, nodeInfo.Address)
 			walletInfoResponseC <- walletInfoResponse{
-				WalletInfo: types.WalletInfo{
-					Name:    fmt.Sprintf("node (%s) (address=%s)", pod.Name, wi.Address),
+				WalletInfo: WalletInfo{
+					Name:    fmt.Sprintf("node (%s) (address=%s)", nodeInfo.Name, wi.Address),
 					ChainID: wi.ChainID,
 					Address: wi.Address,
 				},
 				Error: err,
 			}
-		}(pod)
+		}(nodeInfo)
 	}
 
-	nodeWallets := make([]types.WalletInfo, 0)
+	nodeWallets := make([]WalletInfo, 0)
 
-	for i := 0; i < len(pods.Items); i++ {
+	for i := 0; i < len(nodes); i++ {
 		res := <-walletInfoResponseC
-		if res.Error != nil {
-			log.Printf("wallet info error: %s\n", res.Error.Error())
-		} else {
+		if res.Error == nil {
 			nodeWallets = append(nodeWallets, res.WalletInfo)
 		}
 	}
 
-	return &types.NamespaceNodes{
+	return NamespaceNodes{
 		Name:        namespace,
 		NodeWallets: nodeWallets,
 	}, nil
 }
 
-func FetchWalletInfo(ctx context.Context, nodeAddress string) (types.WalletInfo, error) {
-	response, err := util.SendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint), nil)
+func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
+	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint))
 	if err != nil {
-		return types.WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
+		return WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
 	}
 
 	walletResponse := struct {
@@ -111,14 +139,14 @@ func FetchWalletInfo(ctx context.Context, nodeAddress string) (types.WalletInfo,
 		ChainID       int64  `json:"chainID"`
 	}{}
 	if err := json.Unmarshal(response, &walletResponse); err != nil {
-		return types.WalletInfo{}, fmt.Errorf("failed to unmarshal wallet response :%w", err)
+		return WalletInfo{}, fmt.Errorf("failed to unmarshal wallet response :%w", err)
 	}
 
 	if walletResponse.WalletAddress == "" {
-		return types.WalletInfo{}, fmt.Errorf("failed getting bee node wallet address")
+		return WalletInfo{}, fmt.Errorf("failed getting bee node wallet address")
 	}
 
-	return types.WalletInfo{
+	return WalletInfo{
 		Address: walletResponse.WalletAddress,
 		ChainID: walletResponse.ChainID,
 	}, nil

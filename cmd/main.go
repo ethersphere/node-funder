@@ -19,7 +19,12 @@ func main() {
 
 	ctx := context.Background()
 
-	if err = funder.Fund(ctx, cfg); err != nil {
+	nl, err := funder.NewNodeLister()
+	if err != nil {
+		log.Fatalf("could not create node lister: %v", err)
+	}
+
+	if err = funder.Fund(ctx, cfg, nl); err != nil {
 		log.Fatalf("error while funding: %v", err)
 	}
 }

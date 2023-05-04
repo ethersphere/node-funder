@@ -3,7 +3,7 @@
 [![lint](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml)
 [![test](https://github.com/ethersphere/node-funder/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/test.yml)
 
-Node funder is tool to fund (top up) bee nodes up to the specifed amount. It can fund all nodes in k8s namespace or it can fund only specified addresses.
+Node funder is tool to fund (top up) bee nodes up to the specified amount. It can fund all nodes in k8s namespace or it can fund only specified addresses.
 
 # run node-funder
 
@@ -12,9 +12,9 @@ Node funder is tool to fund (top up) bee nodes up to the specifed amount. It can
 - `walletKey` - private key of wallet which will be used to fund nodes (hex encoded string value).
 - specify one argument: 
   - `namespace` - the k8s namespace to fund all nodes in this namespace, or
-  - `addresses` - comma sparated list of wallet addresses (hex encoded string value) to fund wallets directly
-- `minSwarm` - min amount of Swarm tokens node should have (on mainnet this is BZZ). Node is not funded if it already has more then specifed. 
-- `minNative` - min amount of blockchain native tokens node should have (on mainnet this is ETH). Node is not funded if it already has more then specifed. 
+  - `addresses` - comma separated list of wallet addresses (hex encoded string value) to fund wallets directly
+- `minSwarm` - min amount of Swarm tokens node should have (on mainnet this is xBZZ). Node is not funded if it already has more then specified. 
+- `minNative` - min amount of blockchain native tokens node should have (on mainnet this is xDAI). Node is not funded if it already has more then specified. 
 
 ## Command examples
 
