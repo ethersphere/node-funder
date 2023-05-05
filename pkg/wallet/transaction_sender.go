@@ -16,7 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 const (
@@ -34,13 +33,13 @@ type TransactionSender interface {
 }
 
 type transactionSender struct {
-	client    *ethclient.Client
+	client    BackendClient
 	key       Key
 	nonceLock sync.Mutex
 	nonceLast uint64
 }
 
-func newTransactionSender(client *ethclient.Client, key Key) TransactionSender {
+func newTransactionSender(client BackendClient, key Key) TransactionSender {
 	return &transactionSender{
 		client: client,
 		key:    key,
