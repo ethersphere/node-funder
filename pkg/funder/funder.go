@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
@@ -22,6 +24,22 @@ func Fund(
 	nl NodeLister,
 	fundingWallet *wallet.Wallet,
 ) error {
+	var err error
+
+	if nl == nil {
+		nl, err = newNodeLister()
+		if err != nil {
+			return fmt.Errorf("make node lister: %w", err)
+		}
+	}
+
+	if fundingWallet == nil {
+		fundingWallet, err = makeFundingWallet(ctx, cfg)
+		if err != nil {
+			return fmt.Errorf("make funding wallet: %w", err)
+		}
+	}
+
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
@@ -42,7 +60,7 @@ func fundNamespace(
 ) error {
 	log.Printf("fetching nodes for namespace=%s", cfg.Namespace)
 
-	namespace, err := FetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
+	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
@@ -292,4 +310,42 @@ func formatAmount(amount *big.Int, decimals int) string {
 	a.Quo(a, big.NewFloat(0).SetInt(exp))
 
 	return a.String()
+}
+
+func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) {
+	key, err := makeWalletKey(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("making wallet key failed: %w", err)
+	}
+
+	_, err = key.PublicAddress()
+	if err != nil {
+		return nil, fmt.Errorf("getting wallet public key failed: %w", err)
+	}
+
+	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("making eth client failed: %w", err)
+	}
+
+	fundingWallet := wallet.New(ethClient, key)
+
+	return fundingWallet, nil
+}
+
+func makeWalletKey(cfg Config) (wallet.Key, error) {
+	if cfg.WalletKey == "" {
+		return wallet.GenerateKey()
+	}
+
+	return wallet.Key(cfg.WalletKey), nil
+}
+
+func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, error) {
+	rpcClient, err := rpc.DialContext(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return ethclient.NewClient(rpcClient), nil
 }

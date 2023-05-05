@@ -10,6 +10,7 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: test (race detector)
         run: go test -timeout=30s -race -count=10 -failfast ./...
       - name: generate coverage
