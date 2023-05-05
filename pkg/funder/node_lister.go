@@ -27,7 +27,7 @@ type NodeLister interface {
 	List(ctx context.Context, namespace string) ([]NodeInfo, error)
 }
 
-func NewNodeLister() (NodeLister, error) {
+func newNodeLister() (NodeLister, error) {
 	client, err := newKube()
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func makeConfig() (*rest.Config, error) {
 		&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}).ClientConfig()
 }
 
-func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister) (NamespaceNodes, error) {
+func fetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister) (NamespaceNodes, error) {
 	nodes, err := nl.List(ctx, namespace)
 	if err != nil {
 		return NamespaceNodes{}, fmt.Errorf("listing nodes failed: %w", err)
@@ -101,7 +101,7 @@ func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister
 
 	for _, nodeInfo := range nodes {
 		go func(nodeInfo NodeInfo) {
-			wi, err := FetchWalletInfo(ctx, nodeInfo.Address)
+			wi, err := fetchWalletInfo(ctx, nodeInfo.Address)
 			walletInfoResponseC <- walletInfoResponse{
 				WalletInfo: WalletInfo{
 					Name:    fmt.Sprintf("node (%s) (address=%s)", nodeInfo.Name, wi.Address),
@@ -128,7 +128,7 @@ func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister
 	}, nil
 }
 
-func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
+func fetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
 	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAddress+beeWalletEndpoint)
 	if err != nil {
 		return WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
