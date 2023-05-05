@@ -21,7 +21,7 @@ func NewBackendClient() wallet.BackendClient {
 
 type client struct{}
 
-func (c client) NetworkID(ctx context.Context) (*big.Int, error) {
+func (c client) ChainID(ctx context.Context) (*big.Int, error) {
 	return big.NewInt(100), nil
 }
 

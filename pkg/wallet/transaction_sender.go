@@ -52,7 +52,7 @@ func (s *transactionSender) Send(
 	amount *big.Int,
 	callData []byte,
 ) error {
-	chainID, err := s.client.NetworkID(ctx)
+	chainID, err := s.client.ChainID(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get network id, %w", err)
 	}
