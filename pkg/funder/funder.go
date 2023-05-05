@@ -253,7 +253,7 @@ func topUpWallet(
 		return nil, err
 	}
 
-	topUpAmount := CalcTopUpAmount(minAmount, currentBalance, token.Decimals)
+	topUpAmount := calcTopUpAmount(minAmount, currentBalance, token.Decimals)
 	if topUpAmount.Cmp(big.NewInt(0)) <= 0 {
 		// Top up is not needed, current balance is sufficient
 		return nil, nil
@@ -267,7 +267,7 @@ func topUpWallet(
 	return topUpAmount, nil
 }
 
-func CalcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
+func calcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
 	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
 	minAmount := big.NewFloat(min)

@@ -52,7 +52,7 @@ func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, e
 	for _, pod := range pods.Items {
 		result = append(result, NodeInfo{
 			Name:    pod.Name,
-			Address: pod.Status.PodIP,
+			Address: fmt.Sprintf("http://%s:1635", pod.Status.PodIP),
 		})
 	}
 
@@ -129,7 +129,7 @@ func FetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister
 }
 
 func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error) {
-	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAPIAddress(nodeAddress, beeWalletEndpoint))
+	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAddress+beeWalletEndpoint)
 	if err != nil {
 		return WalletInfo{}, fmt.Errorf("get bee wallet info failed: %w", err)
 	}
@@ -150,8 +150,4 @@ func FetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error
 		Address: walletResponse.WalletAddress,
 		ChainID: walletResponse.ChainID,
 	}, nil
-}
-
-func nodeAPIAddress(nodeAddress, endpoint string) string {
-	return fmt.Sprintf("http://%s:1635%s", nodeAddress, endpoint)
 }
