@@ -3,4 +3,4 @@
 profile: cover.out
 local-refix: "github.com/ethersphere/node-funder"
 threshold:
-  total: 2
+  total: 54

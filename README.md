@@ -1,7 +1,8 @@
 # node-funder
 
-[![lint](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml)
 [![test](https://github.com/ethersphere/node-funder/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/test.yml)
+[![lint](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml)
+[![coverage](https://raw.githubusercontent.com/ethersphere/node-funder/badges/.badges/main/coverage.svg)](./.github/testcoverage.yml)
 
 Node funder is tool to fund (top up) bee nodes up to the specified amount. It can fund all nodes in k8s namespace or it can fund only specified addresses.
 

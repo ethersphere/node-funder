@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethersphere/go-sw3-abi/sw3abi"
 )
 
@@ -35,19 +34,26 @@ type TokenWallet interface {
 }
 
 type Wallet struct {
-	client *ethclient.Client
+	key    Key
+	client BackendClient
 	native TokenWallet
 	erc20  TokenWallet
 }
 
-func New(client *ethclient.Client, key Key) *Wallet {
+func New(client BackendClient, key Key) *Wallet {
 	trxSender := newTransactionSender(client, key)
 
 	return &Wallet{
+		key:    key,
 		client: client,
 		native: newNativeWallet(client, trxSender),
 		erc20:  newERC20Wallet(client, trxSender),
 	}
+}
+
+func (w *Wallet) PublicAddress() common.Address {
+	addr, _ := w.key.PublicAddress()
+	return addr
 }
 
 func (w *Wallet) ChainID(ctx context.Context) (int64, error) {
@@ -100,12 +106,12 @@ func (w *Wallet) TransferERC20(
 }
 
 type nativeWallet struct {
-	client    *ethclient.Client
+	client    BackendClient
 	trxSender TransactionSender
 }
 
 func newNativeWallet(
-	client *ethclient.Client,
+	client BackendClient,
 	trxSender TransactionSender,
 ) *nativeWallet {
 	return &nativeWallet{
@@ -137,11 +143,12 @@ func (w *nativeWallet) Balance(
 }
 
 type erc20Wallet struct {
-	client    *ethclient.Client
+	client    BackendClient
 	trxSender TransactionSender
 }
 
-func newERC20Wallet(client *ethclient.Client,
+func newERC20Wallet(
+	client BackendClient,
 	trxSender TransactionSender,
 ) *erc20Wallet {
 	return &erc20Wallet{

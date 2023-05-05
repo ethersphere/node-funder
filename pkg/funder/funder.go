@@ -10,31 +10,37 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
 
-func Fund(ctx context.Context, cfg Config, nl NodeLister) error {
-	if cfg.Namespace != "" {
-		return fundNamespace(ctx, cfg, nl)
-	}
-
-	return fundAddresses(ctx, cfg)
-}
-
-func fundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
+func Fund(
+	ctx context.Context,
+	cfg Config,
+	nl NodeLister,
+	fundingWallet *wallet.Wallet,
+) error {
 	log.Printf("node funder started...")
 	defer log.Print("node funder finished")
 
-	fundingWallet, err := makeFundingWallet(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to make funding wallet: %w", err)
+	log.Printf("using wallet address (public key address): %s", fundingWallet.PublicAddress())
+
+	if cfg.Namespace != "" {
+		return fundNamespace(ctx, cfg, nl, fundingWallet)
 	}
 
-	log.Printf("fetchin nodes for namespace=%s", cfg.Namespace)
+	return fundAddresses(ctx, cfg, fundingWallet)
+}
+
+func fundNamespace(
+	ctx context.Context,
+	cfg Config,
+	nl NodeLister,
+	fundingWallet *wallet.Wallet,
+) error {
+	log.Printf("fetching nodes for namespace=%s", cfg.Namespace)
 
 	namespace, err := FetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
 	if err != nil {
@@ -50,15 +56,11 @@ func fundNamespace(ctx context.Context, cfg Config, nl NodeLister) error {
 	return nil
 }
 
-func fundAddresses(ctx context.Context, cfg Config) error {
-	log.Printf("node funder started...")
-	defer log.Print("node funder finished")
-
-	fundingWallet, err := makeFundingWallet(ctx, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to make funding wallet: %w", err)
-	}
-
+func fundAddresses(
+	ctx context.Context,
+	cfg Config,
+	fundingWallet *wallet.Wallet,
+) error {
 	cid, err := fundingWallet.ChainID(ctx)
 	if err != nil {
 		return err
@@ -129,46 +131,6 @@ func fundAllWallets(
 	return allWalletsFunded
 }
 
-func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) {
-	key, err := makeWalletKey(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("making wallet key failed: %w", err)
-	}
-
-	pubKeyAddr, err := key.PublicAddress()
-	if err != nil {
-		return nil, fmt.Errorf("getting wallet public key failed: %w", err)
-	}
-
-	log.Printf("using wallet address (public key address): %s", pubKeyAddr)
-
-	ethClient, err := makeEthClient(ctx, cfg.ChainNodeEndpoint)
-	if err != nil {
-		return nil, fmt.Errorf("making eth client failed: %w", err)
-	}
-
-	fundingWallet := wallet.New(ethClient, key)
-
-	return fundingWallet, nil
-}
-
-func makeWalletKey(cfg Config) (wallet.Key, error) {
-	if cfg.WalletKey == "" {
-		return wallet.GenerateKey()
-	}
-
-	return wallet.Key(cfg.WalletKey), nil
-}
-
-func makeEthClient(ctx context.Context, endpoint string) (*ethclient.Client, error) {
-	rpcClient, err := rpc.DialContext(ctx, endpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return ethclient.NewClient(rpcClient), nil
-}
-
 type fundWalletResp struct {
 	wallet                  WalletInfo
 	err                     error
@@ -216,14 +178,20 @@ func fundWalletAsync(
 	return respC
 }
 
-func mergeErrors(main error, err ...error) error {
-	if len(err) == 0 {
-		return nil
+func mergeErrors(main error, errs ...error) error {
+	var errorMsg []string
+
+	for _, err := range errs {
+		if err != nil {
+			errorMsg = append(errorMsg, err.Error())
+		}
 	}
 
-	err = append([]error{main}, err...)
+	if len(errorMsg) > 0 {
+		return fmt.Errorf("%w, reason: %s", main, strings.Join(errorMsg, ", "))
+	}
 
-	return errors.Join(err...)
+	return nil
 }
 
 func validateChainID(ctx context.Context, fundingWallet *wallet.Wallet, wi WalletInfo) error {
