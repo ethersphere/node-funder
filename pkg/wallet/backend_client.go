@@ -14,7 +14,7 @@ import (
 )
 
 type BackendClient interface {
-	NetworkID(ctx context.Context) (*big.Int, error)
+	ChainID(ctx context.Context) (*big.Int, error)
 	CallContract(ctx context.Context, call ethereum.CallMsg, blockNumber *big.Int) ([]byte, error)
 	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
 	SuggestGasPrice(ctx context.Context) (*big.Int, error)
