@@ -31,7 +31,8 @@ func Test_Fund(t *testing.T) {
 		t.Parallel()
 
 		cfg := Config{}
-		err := Fund(ctx, cfg, nil, w)
+		nl := fundermock.NewNodeLister(nil)
+		err := Fund(ctx, cfg, nl, w)
 		assert.NoError(t, err)
 	})
 
@@ -42,7 +43,8 @@ func Test_Fund(t *testing.T) {
 			t.Parallel()
 
 			cfg := Config{Addresses: []string{"0x95f8916183f7C7154e49396507F5b0FafA4d8077"}}
-			err := Fund(ctx, cfg, nil, w)
+			nl := fundermock.NewNodeLister(nil)
+			err := Fund(ctx, cfg, nl, w)
 			assert.NoError(t, err)
 		})
 
@@ -56,7 +58,8 @@ func Test_Fund(t *testing.T) {
 				},
 				MinAmounts: MinAmounts{NativeCoin: 3, SwarmToken: 3},
 			}
-			err := Fund(ctx, cfg, nil, w)
+			nl := fundermock.NewNodeLister(nil)
+			err := Fund(ctx, cfg, nl, w)
 			assert.NoError(t, err)
 		})
 	})
@@ -92,11 +95,11 @@ func Test_Fund(t *testing.T) {
 			assert.NoError(t, err)
 		}))
 		t.Cleanup(server.Close)
+		nl := fundermock.NewNodeLister([]NodeInfo{{Address: server.URL}})
 
 		t.Run("already funded (0,0)", func(t *testing.T) {
 			t.Parallel()
 
-			nl := fundermock.NewNodeLister([]NodeInfo{{Address: server.URL}})
 			cfg := Config{Namespace: "swarm"}
 			err := Fund(ctx, cfg, nl, w)
 			assert.NoError(t, err)
@@ -105,7 +108,6 @@ func Test_Fund(t *testing.T) {
 		t.Run("already funded (1,1)", func(t *testing.T) {
 			t.Parallel()
 
-			nl := fundermock.NewNodeLister([]NodeInfo{{Address: server.URL}})
 			cfg := Config{Namespace: "swarm", MinAmounts: MinAmounts{NativeCoin: 1, SwarmToken: 1}}
 			err := Fund(ctx, cfg, nl, w)
 			assert.NoError(t, err)
@@ -114,7 +116,6 @@ func Test_Fund(t *testing.T) {
 		t.Run("not funded (3,3)", func(t *testing.T) {
 			t.Parallel()
 
-			nl := fundermock.NewNodeLister([]NodeInfo{{Address: server.URL}})
 			cfg := Config{Namespace: "swarm", MinAmounts: MinAmounts{NativeCoin: 3, SwarmToken: 3}}
 			err := Fund(ctx, cfg, nl, w)
 			assert.NoError(t, err)
