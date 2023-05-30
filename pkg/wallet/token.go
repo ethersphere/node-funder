@@ -17,10 +17,10 @@ type Token struct {
 }
 
 var chainToSwarmTokenMap = map[int64]Token{
-	// Testnet
-	5: {
-		Contract: common.HexToAddress("0x2aC3c1d3e24b45c6C310534Bc2Dd84B5ed576335"),
-		Symbol:   "gBZZ",
+	// Sepolia Testnet
+	11155111: {
+		Contract: common.HexToAddress("0xa66be4A7De4DfA5478Cb2308469D90115C45aA23"),
+		Symbol:   "sBZZ",
 		Decimals: 16,
 	},
 
@@ -33,9 +33,9 @@ var chainToSwarmTokenMap = map[int64]Token{
 }
 
 var chainToNativeCoinMap = map[int64]Token{
-	// Testnet
-	5: {
-		Symbol:   "ETH",
+	// Sepolia Testnet
+	11155111: {
+		Symbol:   "sETH",
 		Decimals: 18,
 	},
 
