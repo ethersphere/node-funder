@@ -10,6 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+const SwarmTokenDecimals = 16
+
 type Token struct {
 	Contract common.Address
 	Symbol   string
@@ -21,14 +23,14 @@ var chainToSwarmTokenMap = map[int64]Token{
 	11155111: {
 		Contract: common.HexToAddress("0xa66be4A7De4DfA5478Cb2308469D90115C45aA23"),
 		Symbol:   "sBZZ",
-		Decimals: 16,
+		Decimals: SwarmTokenDecimals,
 	},
 
 	// Mainnet
 	100: {
 		Contract: common.HexToAddress("0x19062190b1925b5b6689d7073fdfc8c2976ef8cb"),
 		Symbol:   "xBZZ",
-		Decimals: 16,
+		Decimals: SwarmTokenDecimals,
 	},
 }
 
