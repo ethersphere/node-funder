@@ -81,7 +81,8 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 }
 
 func stakeNode(ctx context.Context, nodeAddress string, amount *big.Int) error {
-	_, err := sendHTTPRequest(ctx, http.MethodPost, nodeAddress+"/stake/"+formatAmount(amount, 16))
+	_, err := sendHTTPRequest(ctx, http.MethodPost, nodeAddress+"/stake/"+amount.String())
+
 	return err
 }
 
