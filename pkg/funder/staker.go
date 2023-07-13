@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ethersphere/bee/pkg/bigint"
 	"github.com/ethersphere/node-funder/pkg/wallet"
@@ -52,6 +53,8 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 	wg := sync.WaitGroup{}
 	wg.Add(len(nodes))
 
+	var skipped, staked atomic.Int32
+
 	for _, n := range nodes {
 		go func(node NodeInfo) {
 			defer wg.Done()
@@ -64,6 +67,7 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 
 			amount := calcTopUpAmount(min, si.StakedAmount, wallet.SwarmTokenDecimals)
 			if amount.Cmp(big.NewInt(0)) <= 0 {
+				skipped.Add(1)
 				log.Printf("node[%s] - already staked", node.Name)
 				// Top up is not needed, current stake value is sufficient
 				return
@@ -73,11 +77,17 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 				log.Printf("node[%s] - staking failed; reason: %s", node.Name, err)
 			} else {
 				log.Printf("node[%s] - staked", node.Name)
+				staked.Add(1)
 			}
 		}(n)
 	}
 
 	wg.Wait()
+
+	log.Printf("staked %d", staked.Load())
+	log.Printf("skipped %d", skipped.Load())
+	log.Printf("failed %d", len(nodes)-int(staked.Load())-int(skipped.Load()))
+	log.Printf("total %d", len(nodes))
 }
 
 func stakeNode(ctx context.Context, nodeAddress string, amount *big.Int) error {
