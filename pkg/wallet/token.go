@@ -32,6 +32,13 @@ var chainToSwarmTokenMap = map[int64]Token{
 		Symbol:   "xBZZ",
 		Decimals: SwarmTokenDecimals,
 	},
+
+	// Localnet
+	12345: {
+		Contract: common.HexToAddress("0x6aab14fe9cccd64a502d23842d916eb5321c26e7"),
+		Symbol:   "tBZZ",
+		Decimals: SwarmTokenDecimals,
+	},
 }
 
 var chainToNativeCoinMap = map[int64]Token{
@@ -44,6 +51,12 @@ var chainToNativeCoinMap = map[int64]Token{
 	// Mainnet
 	100: {
 		Symbol:   "xDAI",
+		Decimals: 18,
+	},
+
+	// Localnet
+	12345: {
+		Symbol:   "tETH",
 		Decimals: 18,
 	},
 }
