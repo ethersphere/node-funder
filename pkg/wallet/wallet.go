@@ -6,6 +6,7 @@ package wallet
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -191,9 +192,24 @@ func (w *erc20Wallet) Transfer(
 	amount *big.Int,
 	token Token,
 ) error {
+	chainID, err := w.client.ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get network id, %w", err)
+	}
+
 	callData, err := erc20ABI.Pack("transfer", toAddr, amount)
 	if err != nil {
 		return fmt.Errorf("failed to pack abi, %w", err)
+	}
+
+	// Custom handling for LocalnetChainID.
+	if chainID.Int64() == LocalnetChainID {
+		localnetMintFunction, decodeErr := hex.DecodeString("40c10f19") // mint(address,uint256)
+		if decodeErr != nil {
+			return fmt.Errorf("failed decode string %w", err)
+		}
+		// Replace the first 4 bytes of the call data (transfer) with the localnet mint function.
+		copy(callData[:4], localnetMintFunction)
 	}
 
 	err = w.trxSender.Send(ctx, token.Contract, nil, callData)

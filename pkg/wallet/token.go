@@ -10,7 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-const SwarmTokenDecimals = 16
+const (
+	SwarmTokenDecimals = 16
+	LocalnetChainID    = 12345
+)
 
 type Token struct {
 	Contract common.Address
@@ -34,7 +37,7 @@ var chainToSwarmTokenMap = map[int64]Token{
 	},
 
 	// Localnet
-	12345: {
+	LocalnetChainID: {
 		Contract: common.HexToAddress("0x6aab14fe9cccd64a502d23842d916eb5321c26e7"),
 		Symbol:   "tBZZ",
 		Decimals: SwarmTokenDecimals,
@@ -55,7 +58,7 @@ var chainToNativeCoinMap = map[int64]Token{
 	},
 
 	// Localnet
-	12345: {
+	LocalnetChainID: {
 		Symbol:   "tETH",
 		Decimals: 18,
 	},
