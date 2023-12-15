@@ -31,6 +31,7 @@ func main() {
 			doFund(cfg)
 		},
 	}
+
 	fundCmd.PersistentFlags().StringVar(&cfg.Namespace, "namespace", "", "kubernetes namespace")
 	fundCmd.PersistentFlags().StringSliceVar(&cfg.Addresses, "addresses", nil, "wallet addresses")
 	fundCmd.PersistentFlags().StringVar(&cfg.ChainNodeEndpoint, "chainNodeEndpoint", "", "endpoint to chain node")
