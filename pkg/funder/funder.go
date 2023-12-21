@@ -21,10 +21,12 @@ import (
 
 type FunderOptions func(*Options)
 
+// Options represents funder options
 type Options struct {
 	log logging.Logger
 }
 
+// DefaultOptions returns default options
 func DefaultOptions() *Options {
 	return &Options{
 		log: logging.New(os.Stdout, 4),
@@ -46,6 +48,7 @@ func Fund(
 	options ...FunderOptions,
 ) error {
 	var err error
+
 	opts := DefaultOptions()
 	for _, opt := range options {
 		opt(opts)
@@ -64,12 +67,6 @@ func Fund(
 			return fmt.Errorf("make funding wallet: %w", err)
 		}
 	}
-
-	// TODO: make logging configurable in beekeeper, use WithOptions
-	// if log == nil {
-	// 	//dicard
-	// 	log = logging.New(os.Stdout, logging.LevelInfo)
-	// }
 
 	opts.log.Infof("node funder started...")
 	defer opts.log.Info("node funder finished")
