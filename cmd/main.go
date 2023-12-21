@@ -22,6 +22,7 @@ const (
 
 func main() {
 	cfg := funder.Config{}
+
 	var logLevel string
 
 	rootCmd := &cobra.Command{
@@ -110,6 +111,7 @@ func doStake(cfg funder.Config, logger logging.Logger) {
 
 func newLogger(cmd *cobra.Command, verbosity string) (logging.Logger, error) {
 	var logger logging.Logger
+
 	switch strings.ToLower(verbosity) {
 	case "0", "silent":
 		logger = logging.New(io.Discard, 0)
@@ -126,5 +128,6 @@ func newLogger(cmd *cobra.Command, verbosity string) (logging.Logger, error) {
 	default:
 		return nil, fmt.Errorf("unknown %s level %q, use help to check flag usage options", optionLogVerbosity, verbosity)
 	}
+
 	return logger, nil
 }
