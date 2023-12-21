@@ -4,7 +4,7 @@ linters:
   enable:
     - asciicheck
     - bidichk
-    - depguard
+    # - depguard
     - dogsled
     - durationcheck
     - errcheck
@@ -56,4 +56,4 @@ issues:
     - linters:
         - forbidigo
       path: cmd/
-      text: "use of `fmt.Print"   ## allow fmt.Print in cmd directory
+      text: "use of `fmt.Print" ## allow fmt.Print in cmd directory

@@ -8,23 +8,51 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethersphere/beekeeper/pkg/logging"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 )
+
+type FunderOptions func(*Options)
+
+// Options represents funder options
+type Options struct {
+	log logging.Logger
+}
+
+// DefaultOptions returns default options
+func DefaultOptions() *Options {
+	return &Options{
+		log: logging.New(os.Stdout, 4),
+	}
+}
+
+// WithLoggerOption sets the logger to be used by the funder
+func WithLoggerOption(log logging.Logger) FunderOptions {
+	return func(o *Options) {
+		o.log = log
+	}
+}
 
 func Fund(
 	ctx context.Context,
 	cfg Config,
 	nl NodeLister,
 	fundingWallet *wallet.Wallet,
+	options ...FunderOptions,
 ) error {
 	var err error
+
+	opts := DefaultOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
 
 	if nl == nil {
 		nl, err = newNodeLister()
@@ -40,16 +68,16 @@ func Fund(
 		}
 	}
 
-	log.Printf("node funder started...")
-	defer log.Print("node funder finished")
+	opts.log.Infof("node funder started...")
+	defer opts.log.Info("node funder finished")
 
-	log.Printf("using wallet address (public key address): %s", fundingWallet.PublicAddress())
+	opts.log.Infof("using wallet address (public key address): %s", fundingWallet.PublicAddress())
 
 	if cfg.Namespace != "" {
-		return fundNamespace(ctx, cfg, nl, fundingWallet)
+		return fundNamespace(ctx, cfg, nl, fundingWallet, opts.log)
 	}
 
-	return fundAddresses(ctx, cfg, fundingWallet)
+	return fundAddresses(ctx, cfg, fundingWallet, opts.log)
 }
 
 func fundNamespace(
@@ -57,17 +85,18 @@ func fundNamespace(
 	cfg Config,
 	nl NodeLister,
 	fundingWallet *wallet.Wallet,
+	log logging.Logger,
 ) error {
-	log.Printf("fetching nodes for namespace=%s", cfg.Namespace)
+	log.Infof("fetching nodes for namespace=%s", cfg.Namespace)
 
 	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
 
-	log.Printf("funding nodes (count=%d) up to amounts=%+v", len(namespace.NodeWallets), cfg.MinAmounts)
+	log.Infof("funding nodes (count=%d) up to amounts=%+v", len(namespace.NodeWallets), cfg.MinAmounts)
 
-	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, namespace.NodeWallets); !ok {
+	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, namespace.NodeWallets, log); !ok {
 		return fmt.Errorf("funding all nodes failed")
 	}
 
@@ -78,24 +107,25 @@ func fundAddresses(
 	ctx context.Context,
 	cfg Config,
 	fundingWallet *wallet.Wallet,
+	log logging.Logger,
 ) error {
 	cid, err := fundingWallet.ChainID(ctx)
 	if err != nil {
 		return err
 	}
 
-	wallets := makeWalletInfoFromAddresses(cfg.Addresses, cid)
+	wallets := makeWalletInfoFromAddresses(cfg.Addresses, cid, log)
 
-	log.Printf("funding wallets (count=%d) up to amounts=%+v", len(wallets), cfg.MinAmounts)
+	log.Infof("funding wallets (count=%d) up to amounts=%+v", len(wallets), cfg.MinAmounts)
 
-	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, wallets); !ok {
+	if ok := fundAllWallets(ctx, fundingWallet, cfg.MinAmounts, wallets, log); !ok {
 		return fmt.Errorf("funding all wallets failed")
 	}
 
 	return nil
 }
 
-func makeWalletInfoFromAddresses(addrs []string, cid int64) []WalletInfo {
+func makeWalletInfoFromAddresses(addrs []string, cid int64, log logging.Logger) []WalletInfo {
 	result := make([]WalletInfo, 0, len(addrs))
 	for _, addr := range addrs {
 		result = append(result, WalletInfo{
@@ -113,10 +143,11 @@ func fundAllWallets(
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
 	wallets []WalletInfo,
+	log logging.Logger,
 ) bool {
 	fundWalletRespC := make([]<-chan fundWalletResp, len(wallets))
 	for i, wi := range wallets {
-		fundWalletRespC[i] = fundWalletAsync(ctx, fundingWallet, minAmounts, wi)
+		fundWalletRespC[i] = fundWalletAsync(ctx, fundingWallet, minAmounts, wi, log)
 	}
 
 	allWalletsFunded := true
@@ -127,7 +158,7 @@ func fundAllWallets(
 		cid := resp.wallet.ChainID
 
 		if resp.err != nil {
-			log.Printf("%s funding failed - error: %s", name, resp.err)
+			log.Infof("%s funding failed - error: %s", name, resp.err)
 
 			allWalletsFunded = false
 
@@ -135,14 +166,14 @@ func fundAllWallets(
 		}
 
 		if resp.transferredNativeAmount == nil && resp.transferredSwarmAmount == nil {
-			log.Printf("%s funded - already funded", name)
+			log.Infof("%s funded - already funded", name)
 		} else {
 			token, _ := wallet.NativeCoinForChain(cid)
 			nativeAmount := formatAmount(resp.transferredNativeAmount, token.Decimals)
 			token, _ = wallet.SwarmTokenForChain(cid)
 			swarmAmount := formatAmount(resp.transferredSwarmAmount, token.Decimals)
 
-			log.Printf("%s funded - transferred { native: %s, swarm: %s }", name, nativeAmount, swarmAmount)
+			log.Infof("%s funded - transferred { native: %s, swarm: %s }", name, nativeAmount, swarmAmount)
 		}
 	}
 
@@ -167,6 +198,7 @@ func fundWalletAsync(
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
 	wi WalletInfo,
+	log logging.Logger,
 ) <-chan fundWalletResp {
 	respC := make(chan fundWalletResp, 1)
 

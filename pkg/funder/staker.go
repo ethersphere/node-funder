@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -16,13 +15,19 @@ import (
 	"sync/atomic"
 
 	"github.com/ethersphere/bee/pkg/bigint"
+	"github.com/ethersphere/beekeeper/pkg/logging"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 	"k8s.io/utils/strings/slices"
 )
 
-func Stake(ctx context.Context, cfg Config, nl NodeLister) error {
-	log.Printf("node staking started...")
-	defer log.Print("node staking finished")
+func Stake(ctx context.Context, cfg Config, nl NodeLister, options ...FunderOptions) error {
+	opts := DefaultOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	opts.log.Infof("node staking started...")
+	defer opts.log.Info("node staking finished")
 
 	if nl == nil {
 		var err error
@@ -41,15 +46,15 @@ func Stake(ctx context.Context, cfg Config, nl NodeLister) error {
 	nodes, omitted := filterBeeNodes(nodes)
 
 	if len(omitted) > 0 {
-		log.Printf("ignoring pods %v", omitted)
+		opts.log.Infof("ignoring pods %v", omitted)
 	}
 
-	stakeAllNodes(ctx, nodes, cfg.MinAmounts.SwarmToken)
+	stakeAllNodes(ctx, nodes, cfg.MinAmounts.SwarmToken, opts.log)
 
 	return nil
 }
 
-func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
+func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64, log logging.Logger) {
 	wg := sync.WaitGroup{}
 	wg.Add(len(nodes))
 
@@ -61,22 +66,22 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 
 			si, err := fetchStakeInfo(ctx, node.Address)
 			if err != nil {
-				log.Printf("get stake info for node[%s] failed; reason: %s", node.Name, err)
+				log.Infof("get stake info for node[%s] failed; reason: %s", node.Name, err)
 				return
 			}
 
 			amount := calcTopUpAmount(min, si.StakedAmount, wallet.SwarmTokenDecimals)
 			if amount.Cmp(big.NewInt(0)) <= 0 {
 				skipped.Add(1)
-				log.Printf("node[%s] - already staked", node.Name)
+				log.Infof("node[%s] - already staked", node.Name)
 				// Top up is not needed, current stake value is sufficient
 				return
 			}
 
 			if err = stakeNode(ctx, node.Address, amount); err != nil {
-				log.Printf("node[%s] - staking failed; reason: %s", node.Name, err)
+				log.Infof("node[%s] - staking failed; reason: %s", node.Name, err)
 			} else {
-				log.Printf("node[%s] - staked", node.Name)
+				log.Infof("node[%s] - staked", node.Name)
 				staked.Add(1)
 			}
 		}(n)
@@ -84,10 +89,10 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64) {
 
 	wg.Wait()
 
-	log.Printf("staked %d", staked.Load())
-	log.Printf("skipped %d", skipped.Load())
-	log.Printf("failed %d", len(nodes)-int(staked.Load())-int(skipped.Load()))
-	log.Printf("total %d", len(nodes))
+	log.Infof("staked %d", staked.Load())
+	log.Infof("skipped %d", skipped.Load())
+	log.Infof("failed %d", len(nodes)-int(staked.Load())-int(skipped.Load()))
+	log.Infof("total %d", len(nodes))
 }
 
 func stakeNode(ctx context.Context, nodeAddress string, amount *big.Int) error {
