@@ -24,7 +24,7 @@ type Token struct {
 var chainToSwarmTokenMap = map[int64]Token{
 	// Sepolia Testnet
 	11155111: {
-		Contract: common.HexToAddress("0xa66be4A7De4DfA5478Cb2308469D90115C45aA23"),
+		Contract: common.HexToAddress("0x543dDb01Ba47acB11de34891cD86B675F04840db"),
 		Symbol:   "sBZZ",
 		Decimals: SwarmTokenDecimals,
 	},
