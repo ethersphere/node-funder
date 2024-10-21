@@ -73,6 +73,7 @@ func Fund(
 				return fmt.Errorf("make node lister: %w", err)
 			}
 		}
+
 		return fundNamespace(ctx, cfg, nl, fundingWallet, opts.log)
 	}
 
