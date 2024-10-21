@@ -60,7 +60,7 @@ func (w *Wallet) PublicAddress() common.Address {
 func (w *Wallet) ChainID(ctx context.Context) (int64, error) {
 	id, err := w.client.ChainID(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get network id, %w", err)
 	}
 
 	return id.Int64(), nil

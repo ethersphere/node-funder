@@ -14,7 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ethersphere/bee/pkg/bigint"
+	"github.com/ethersphere/bee/v2/pkg/bigint"
 	"github.com/ethersphere/beekeeper/pkg/logging"
 	"github.com/ethersphere/node-funder/pkg/wallet"
 	"k8s.io/utils/strings/slices"

@@ -176,7 +176,7 @@ func (s *transactionSender) signTx(transaction *types.Transaction, chainID *big.
 }
 
 // sign the provided hash and convert it to the ethereum (r,s,v) format.
-func (s *transactionSender) sign(sighash []byte, isCompressedKey bool) ([]byte, error) {
+func (s *transactionSender) sign(sighash []byte, _ bool) ([]byte, error) {
 	privateECDSA, err := s.key.PrivateECDSA()
 	if err != nil {
 		return nil, err

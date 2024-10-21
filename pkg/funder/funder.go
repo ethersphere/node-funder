@@ -54,13 +54,6 @@ func Fund(
 		opt(opts)
 	}
 
-	if nl == nil {
-		nl, err = newNodeLister()
-		if err != nil {
-			return fmt.Errorf("make node lister: %w", err)
-		}
-	}
-
 	if fundingWallet == nil {
 		fundingWallet, err = makeFundingWallet(ctx, cfg)
 		if err != nil {
@@ -74,6 +67,13 @@ func Fund(
 	opts.log.Infof("using wallet address (public key address): %s", fundingWallet.PublicAddress())
 
 	if cfg.Namespace != "" {
+		if nl == nil {
+			nl, err = newNodeLister()
+			if err != nil {
+				return fmt.Errorf("make node lister: %w", err)
+			}
+		}
+
 		return fundNamespace(ctx, cfg, nl, fundingWallet, opts.log)
 	}
 
@@ -111,10 +111,10 @@ func fundAddresses(
 ) error {
 	cid, err := fundingWallet.ChainID(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("getting funding wallet's chain ID failed: %w", err)
 	}
 
-	wallets := makeWalletInfoFromAddresses(cfg.Addresses, cid, log)
+	wallets := makeWalletInfoFromAddresses(cfg.Addresses, cid)
 
 	log.Infof("funding wallets (count=%d) up to amounts=%+v", len(wallets), cfg.MinAmounts)
 
@@ -125,7 +125,7 @@ func fundAddresses(
 	return nil
 }
 
-func makeWalletInfoFromAddresses(addrs []string, cid int64, log logging.Logger) []WalletInfo {
+func makeWalletInfoFromAddresses(addrs []string, cid int64) []WalletInfo {
 	result := make([]WalletInfo, 0, len(addrs))
 	for _, addr := range addrs {
 		result = append(result, WalletInfo{
@@ -147,7 +147,7 @@ func fundAllWallets(
 ) bool {
 	fundWalletRespC := make([]<-chan fundWalletResp, len(wallets))
 	for i, wi := range wallets {
-		fundWalletRespC[i] = fundWalletAsync(ctx, fundingWallet, minAmounts, wi, log)
+		fundWalletRespC[i] = fundWalletAsync(ctx, fundingWallet, minAmounts, wi)
 	}
 
 	allWalletsFunded := true
@@ -198,7 +198,6 @@ func fundWalletAsync(
 	fundingWallet *wallet.Wallet,
 	minAmounts MinAmounts,
 	wi WalletInfo,
-	log logging.Logger,
 ) <-chan fundWalletResp {
 	respC := make(chan fundWalletResp, 1)
 
