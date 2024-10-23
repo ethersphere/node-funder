@@ -17,7 +17,7 @@ import (
 	"github.com/ethersphere/go-sw3-abi/sw3abi"
 )
 
-var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_3_1)
+var erc20ABI = mustParseABI(sw3abi.ERC20ABIv0_6_5)
 
 type TokenWallet interface {
 	Balance(
@@ -176,10 +176,13 @@ func (w *erc20Wallet) Balance(
 		return nil, fmt.Errorf("failed to call contract, %w", err)
 	}
 
+	if len(resp) == 0 {
+		return nil, fmt.Errorf("empty response from contract call: contract=%s", token.Contract.Hex())
+	}
+
 	var balance *big.Int
 
-	err = erc20ABI.UnpackIntoInterface(&balance, "balanceOf", resp)
-	if err != nil {
+	if err = erc20ABI.UnpackIntoInterface(&balance, "balanceOf", resp); err != nil {
 		return nil, fmt.Errorf("failed to unpack abi, %w", err)
 	}
 
@@ -204,16 +207,15 @@ func (w *erc20Wallet) Transfer(
 
 	// Custom handling for LocalnetChainID.
 	if chainID.Int64() == LocalnetChainID {
-		localnetMintFunction, decodeErr := hex.DecodeString("40c10f19") // mint(address,uint256)
+		mint, decodeErr := hex.DecodeString("40c10f19") // mint(address,uint256)
 		if decodeErr != nil {
 			return fmt.Errorf("failed decode string %w", err)
 		}
 		// Replace the first 4 bytes of the call data (transfer) with the localnet mint function.
-		copy(callData[:4], localnetMintFunction)
+		copy(callData[:4], mint)
 	}
 
-	err = w.trxSender.Send(ctx, token.Contract, nil, callData)
-	if err != nil {
+	if err = w.trxSender.Send(ctx, token.Contract, nil, callData); err != nil {
 		return fmt.Errorf("failed to make ERC20 token transfer, %w", err)
 	}
 
