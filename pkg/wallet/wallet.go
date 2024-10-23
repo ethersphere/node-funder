@@ -207,8 +207,8 @@ func (w *erc20Wallet) Transfer(
 
 	// Custom handling for LocalnetChainID.
 	if chainID.Int64() == LocalnetChainID {
-		mint, err := hex.DecodeString("40c10f19") // mint(address,uint256)
-		if err != nil {
+		mint, decodeErr := hex.DecodeString("40c10f19") // mint(address,uint256)
+		if decodeErr != nil {
 			return fmt.Errorf("failed decode string %w", err)
 		}
 		// Replace the first 4 bytes of the call data (transfer) with the localnet mint function.
