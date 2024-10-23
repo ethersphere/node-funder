@@ -29,9 +29,9 @@ var chainToSwarmTokenMap = map[int64]Token{
 		Decimals: SwarmTokenDecimals,
 	},
 
-	// Mainnet
+	// Gnosis Mainnet
 	100: {
-		Contract: common.HexToAddress("0x19062190b1925b5b6689d7073fdfc8c2976ef8cb"),
+		Contract: common.HexToAddress("0xdBF3Ea6F5beE45c02255B2c26a16F300502F68da"),
 		Symbol:   "xBZZ",
 		Decimals: SwarmTokenDecimals,
 	},

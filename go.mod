@@ -9,7 +9,7 @@ require (
 	github.com/ethereum/go-ethereum v1.14.3
 	github.com/ethersphere/bee/v2 v2.2.0
 	github.com/ethersphere/beekeeper v0.17.8
-	github.com/ethersphere/go-sw3-abi v0.6.6
+	github.com/ethersphere/go-sw3-abi v0.6.5
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
 	k8s.io/apimachinery v0.22.16
