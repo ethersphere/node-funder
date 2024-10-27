@@ -316,10 +316,10 @@ func topUpWallet(
 	return topUpAmount, nil
 }
 
-func calcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
+func calcTopUpAmount(minValue float64, currAmount *big.Int, decimals int) *big.Int {
 	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
-	minAmount := big.NewFloat(min)
+	minAmount := big.NewFloat(minValue)
 	minAmount = minAmount.Mul(
 		minAmount,
 		big.NewFloat(0).SetInt(exp),

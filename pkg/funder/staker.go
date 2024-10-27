@@ -54,7 +54,7 @@ func Stake(ctx context.Context, cfg Config, nl NodeLister, options ...FunderOpti
 	return nil
 }
 
-func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64, log logging.Logger) {
+func stakeAllNodes(ctx context.Context, nodes []NodeInfo, minValue float64, log logging.Logger) {
 	wg := sync.WaitGroup{}
 	wg.Add(len(nodes))
 
@@ -70,7 +70,7 @@ func stakeAllNodes(ctx context.Context, nodes []NodeInfo, min float64, log loggi
 				return
 			}
 
-			amount := calcTopUpAmount(min, si.StakedAmount, wallet.SwarmTokenDecimals)
+			amount := calcTopUpAmount(minValue, si.StakedAmount, wallet.SwarmTokenDecimals)
 			if amount.Cmp(big.NewInt(0)) <= 0 {
 				skipped.Add(1)
 				log.Infof("node[%s] - already staked", node.Name)
