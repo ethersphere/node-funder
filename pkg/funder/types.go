@@ -4,6 +4,8 @@
 
 package funder
 
+import "fmt"
+
 type NamespaceNodes struct {
 	Name        string
 	NodeWallets []WalletInfo
@@ -18,4 +20,12 @@ type WalletInfo struct {
 type NodeInfo struct {
 	Name    string
 	Address string
+}
+
+func NewWalletInfo(name, address string, chainID int64) WalletInfo {
+	return WalletInfo{
+		Name:    fmt.Sprintf("node (%s) (address=%s)", name, address),
+		Address: address,
+		ChainID: chainID,
+	}
 }
