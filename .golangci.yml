@@ -4,13 +4,12 @@ linters:
   enable:
     - asciicheck
     - bidichk
-    # - depguard
+    - copyloopvar
     - dogsled
     - durationcheck
     - errcheck
     - errname
     - errorlint
-    - exportloopref
     - forbidigo
     - gochecknoinits
     - goconst

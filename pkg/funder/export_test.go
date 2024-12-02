@@ -6,8 +6,8 @@ package funder
 
 import "math/big"
 
-func CalcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
-	return calcTopUpAmount(min, currAmount, decimals)
+func CalcTopUpAmount(minVal float64, currAmount *big.Int, decimals int) *big.Int {
+	return calcTopUpAmount(minVal, currAmount, decimals)
 }
 
 func FormatAmount(amount *big.Int, decimals int) string {

@@ -99,6 +99,7 @@ func fetchNamespaceNodeInfo(ctx context.Context, namespace string, chainID int64
 	}
 
 	walletInfoResponseC := make(chan walletInfoResponse, len(nodes))
+
 	for _, nodeInfo := range nodes {
 		go func(nodeInfo NodeInfo) {
 			if chainID == 0 {

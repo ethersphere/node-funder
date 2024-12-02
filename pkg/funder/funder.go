@@ -95,6 +95,7 @@ func fundNamespace(
 		if err != nil {
 			return fmt.Errorf("failed to fetch chainID from ChainNodeEndpoint: %w", err)
 		}
+
 		log.Infof("using specified ChainNodeEndpoint to retrieve funding chainID: %d", chainID)
 	}
 
@@ -325,10 +326,10 @@ func topUpWallet(
 	return topUpAmount, nil
 }
 
-func calcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
+func calcTopUpAmount(minVal float64, currAmount *big.Int, decimals int) *big.Int {
 	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
-	minAmount := big.NewFloat(min)
+	minAmount := big.NewFloat(minVal)
 	minAmount = minAmount.Mul(
 		minAmount,
 		big.NewFloat(0).SetInt(exp),
