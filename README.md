@@ -6,24 +6,24 @@
 
 Node funder is tool to fund (top up) bee nodes up to the specified amount. It can fund all nodes in k8s namespace or it can fund only specified addresses.
 
-# run node-funder
-
 ## Arguments
+
 ### Funding node
+
 - `chainNodeEndpoint` - RPC URL of blockchain node (Infura API URL)
 - `walletKey` - private key of wallet which will be used to fund nodes (hex encoded string value).
-- specify one argument: 
+- specify one argument:
   - `namespace` - the k8s namespace to fund all nodes in this namespace, or
   - `addresses` - comma separated list of wallet addresses (hex encoded string value) to fund wallets directly
-- `minSwarm` - min amount of Swarm tokens node should have (on mainnet this is xBZZ). Node is not funded if it already has more then specified. 
-- `minNative` - min amount of blockchain native tokens node should have (on mainnet this is xDAI). Node is not funded if it already has more then specified. 
+- `minSwarm` - min amount of Swarm tokens node should have (on mainnet this is xBZZ). Node is not funded if it already has more then specified.
+- `minNative` - min amount of blockchain native tokens node should have (on mainnet this is xDAI). Node is not funded if it already has more then specified.
 
 ### Staking node
+
 - `namespace` - the k8s namespace to stake all nodes in this namespace
 - `minSwarm` - min amount of Swarm tokens node should have staked
 
 ## Command examples
-
 
 ### Fund nodes in k8s namespace
 

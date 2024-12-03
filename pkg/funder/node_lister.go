@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	beeWalletEndpoint = "/wallet"
+	beeWalletEndpoint    = "/wallet"
+	beeAddressesEndpoint = "/addresses"
 )
 
 type NodeLister interface {
@@ -52,7 +53,7 @@ func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, e
 	for _, pod := range pods.Items {
 		result = append(result, NodeInfo{
 			Name:    pod.Name,
-			Address: fmt.Sprintf("http://%s:1635", pod.Status.PodIP),
+			Address: fmt.Sprintf("http://%s:1633", pod.Status.PodIP),
 		})
 	}
 
@@ -91,7 +92,7 @@ func makeConfig() (*rest.Config, error) {
 		&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}).ClientConfig()
 }
 
-func fetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister) (NamespaceNodes, error) {
+func fetchNamespaceNodeInfo(ctx context.Context, namespace string, chainID int64, nl NodeLister) (NamespaceNodes, error) {
 	nodes, err := nl.List(ctx, namespace)
 	if err != nil {
 		return NamespaceNodes{}, fmt.Errorf("listing nodes failed: %w", err)
@@ -101,14 +102,18 @@ func fetchNamespaceNodeInfo(ctx context.Context, namespace string, nl NodeLister
 
 	for _, nodeInfo := range nodes {
 		go func(nodeInfo NodeInfo) {
-			wi, err := fetchWalletInfo(ctx, nodeInfo.Address)
-			walletInfoResponseC <- walletInfoResponse{
-				WalletInfo: WalletInfo{
-					Name:    fmt.Sprintf("node (%s) (address=%s)", nodeInfo.Name, wi.Address),
-					ChainID: wi.ChainID,
-					Address: wi.Address,
-				},
-				Error: err,
+			if chainID == 0 {
+				wi, err := fetchWalletInfo(ctx, nodeInfo.Address)
+				walletInfoResponseC <- walletInfoResponse{
+					WalletInfo: NewWalletInfo(nodeInfo.Name, wi.Address, wi.ChainID),
+					Error:      err,
+				}
+			} else {
+				address, err := fetchAddressInfo(ctx, nodeInfo.Address)
+				walletInfoResponseC <- walletInfoResponse{
+					WalletInfo: NewWalletInfo(nodeInfo.Name, address, chainID),
+					Error:      err,
+				}
 			}
 		}(nodeInfo)
 	}
@@ -150,4 +155,24 @@ func fetchWalletInfo(ctx context.Context, nodeAddress string) (WalletInfo, error
 		Address: walletResponse.WalletAddress,
 		ChainID: walletResponse.ChainID,
 	}, nil
+}
+
+func fetchAddressInfo(ctx context.Context, nodeAddress string) (string, error) {
+	response, err := sendHTTPRequest(ctx, http.MethodGet, nodeAddress+beeAddressesEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("get bee wallet info failed: %w", err)
+	}
+
+	walletResponse := struct {
+		WalletAddress string `json:"ethereum"`
+	}{}
+	if err := json.Unmarshal(response, &walletResponse); err != nil {
+		return "", fmt.Errorf("failed to unmarshal wallet response :%w", err)
+	}
+
+	if walletResponse.WalletAddress == "" {
+		return "", fmt.Errorf("failed getting bee node wallet address")
+	}
+
+	return walletResponse.WalletAddress, nil
 }

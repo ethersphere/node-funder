@@ -86,10 +86,20 @@ func fundNamespace(
 	nl NodeLister,
 	fundingWallet *wallet.Wallet,
 	log logging.Logger,
-) error {
+) (err error) {
 	log.Infof("fetching nodes for namespace=%s", cfg.Namespace)
 
-	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, nl)
+	var chainID int64
+	if cfg.ChainNodeEndpoint != "" {
+		chainID, err = fundingWallet.ChainID(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch chainID from ChainNodeEndpoint: %w", err)
+		}
+
+		log.Infof("using specified ChainNodeEndpoint to retrieve funding chainID: %d", chainID)
+	}
+
+	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, chainID, nl)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
@@ -316,10 +326,10 @@ func topUpWallet(
 	return topUpAmount, nil
 }
 
-func calcTopUpAmount(min float64, currAmount *big.Int, decimals int) *big.Int {
+func calcTopUpAmount(minVal float64, currAmount *big.Int, decimals int) *big.Int {
 	exp := big.NewInt(0).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
 
-	minAmount := big.NewFloat(min)
+	minAmount := big.NewFloat(minVal)
 	minAmount = minAmount.Mul(
 		minAmount,
 		big.NewFloat(0).SetInt(exp),
