@@ -53,7 +53,7 @@ func (nl *nodeLister) List(ctx context.Context, namespace string) ([]NodeInfo, e
 	for _, pod := range pods.Items {
 		result = append(result, NodeInfo{
 			Name:    pod.Name,
-			Address: fmt.Sprintf("http://%s:1635", pod.Status.PodIP),
+			Address: fmt.Sprintf("http://%s:1633", pod.Status.PodIP),
 		})
 	}
 
