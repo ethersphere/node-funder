@@ -11,7 +11,8 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
+	btcececdsa "github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -182,7 +183,9 @@ func (s *transactionSender) sign(sighash []byte, _ bool) ([]byte, error) {
 		return nil, err
 	}
 
-	signature, err := btcec.SignCompact(btcec.S256(), (*btcec.PrivateKey)(privateECDSA), sighash, false)
+	pvk, _ := btcec.PrivKeyFromBytes(privateECDSA.D.Bytes())
+
+	signature, err := btcececdsa.SignCompact(pvk, sighash, false)
 	if err != nil {
 		return nil, err
 	}
