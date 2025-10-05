@@ -99,7 +99,7 @@ func fundNamespace(
 		log.Infof("using specified ChainNodeEndpoint to retrieve funding chainID: %d", chainID)
 	}
 
-	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, chainID, nl)
+	namespace, err := fetchNamespaceNodeInfo(ctx, cfg.Namespace, chainID, nl, log)
 	if err != nil {
 		return fmt.Errorf("fetching namespace nodes failed: %w", err)
 	}
@@ -168,7 +168,7 @@ func fundAllWallets(
 		cid := resp.wallet.ChainID
 
 		if resp.err != nil {
-			log.Infof("%s funding failed - error: %s", name, resp.err)
+			log.Errorf("%s funding failed - error: %s", name, resp.err.Error())
 
 			allWalletsFunded = false
 

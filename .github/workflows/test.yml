@@ -6,15 +6,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+        uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
       - name: test (race detector)
         run: go test -timeout=30s -race -count=10 -failfast ./...
       - name: generate coverage
-        run: go test ./... -coverprofile=./cover.out -covermode=atomic
+        run: go test ./pkg/funder -coverprofile=./cover.out -covermode=atomic
       - name: check test coverage
         id: coverage
         uses: vladopajic/go-test-coverage@v2

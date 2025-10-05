@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/ethersphere/beekeeper/pkg/logging"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
@@ -92,7 +93,7 @@ func makeConfig() (*rest.Config, error) {
 		&clientcmd.ConfigOverrides{ClusterInfo: api.Cluster{Server: ""}}).ClientConfig()
 }
 
-func fetchNamespaceNodeInfo(ctx context.Context, namespace string, chainID int64, nl NodeLister) (NamespaceNodes, error) {
+func fetchNamespaceNodeInfo(ctx context.Context, namespace string, chainID int64, nl NodeLister, log logging.Logger) (NamespaceNodes, error) {
 	nodes, err := nl.List(ctx, namespace)
 	if err != nil {
 		return NamespaceNodes{}, fmt.Errorf("listing nodes failed: %w", err)
@@ -124,6 +125,8 @@ func fetchNamespaceNodeInfo(ctx context.Context, namespace string, chainID int64
 		res := <-walletInfoResponseC
 		if res.Error == nil {
 			nodeWallets = append(nodeWallets, res.WalletInfo)
+		} else {
+			log.Errorf("fetching wallet info for node %s failed: %v", res.WalletInfo.Name, res.Error)
 		}
 	}
 

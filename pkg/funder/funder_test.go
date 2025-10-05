@@ -49,6 +49,8 @@ func Test_Fund(t *testing.T) {
 		})
 
 		t.Run("not funded (3,3)", func(t *testing.T) {
+			t.Parallel()
+
 			cfg := Config{
 				Addresses: []string{
 					"0x95f8916183f7C7154e49396507F5b0FafA4d8077",
