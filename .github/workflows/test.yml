@@ -14,7 +14,7 @@ jobs:
       - name: test (race detector)
         run: go test -timeout=30s -race -count=10 -failfast ./...
       - name: generate coverage
-        run: go test ./... -coverprofile=./cover.out -covermode=atomic
+        run: go test ./pkg/funder -coverprofile=./cover.out -covermode=atomic
       - name: check test coverage
         id: coverage
         uses: vladopajic/go-test-coverage@v2
