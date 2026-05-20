@@ -4,7 +4,9 @@
 [![lint](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/ethersphere/node-funder/actions/workflows/lint.yml)
 [![coverage](https://raw.githubusercontent.com/ethersphere/node-funder/badges/.badges/main/coverage.svg)](./.github/testcoverage.yml)
 
-Node funder is tool to fund (top up) bee nodes up to the specified amount. It can fund all nodes in k8s namespace or it can fund only specified addresses.
+Node funder is a tool to fund (top up) Bee nodes up to a specified amount. It can fund all nodes in a Kubernetes namespace or fund a given list of wallet addresses directly. It can also stake nodes in a namespace to a target stake.
+
+It can be used as a standalone CLI (see [Command examples](#command-examples) below) or imported as a Go library — [Beekeeper](https://github.com/ethersphere/beekeeper) depends on `github.com/ethersphere/node-funder` to fund and stake nodes inside its cluster workflows.
 
 ## Arguments
 
@@ -57,3 +59,7 @@ go run ./cmd stake --namespace={...} --minSwarm=10
 ## example
 ## go run ./cmd stake --namespace="testnet" --minSwarm=10
 ```
+
+## Maintainers
+
+- [Bee](https://github.com/orgs/ethersphere/teams/bee) team
