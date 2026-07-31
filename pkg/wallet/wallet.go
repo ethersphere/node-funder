@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -41,8 +42,31 @@ type Wallet struct {
 	erc20  TokenWallet
 }
 
-func New(client BackendClient, key Key) *Wallet {
-	trxSender := newTransactionSender(client, key)
+// Option configures a Wallet.
+type Option func(*options)
+
+type options struct {
+	retryAttempts int
+	retryDelay    time.Duration
+}
+
+// WithRetry retries a transaction that failed to reach the chain, up to
+// attempts times, waiting delay in between. Every attempt reuses the nonce
+// reserved by the first one, so at most one of them can ever be mined.
+func WithRetry(attempts int, delay time.Duration) Option {
+	return func(o *options) {
+		o.retryAttempts = attempts
+		o.retryDelay = delay
+	}
+}
+
+func New(client BackendClient, key Key, opts ...Option) *Wallet {
+	o := &options{retryAttempts: 1}
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	trxSender := newTransactionSender(client, key, o)
 
 	return &Wallet{
 		key:    key,

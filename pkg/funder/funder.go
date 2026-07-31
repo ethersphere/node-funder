@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -23,13 +24,27 @@ type FunderOptions func(*Options)
 
 // Options represents funder options
 type Options struct {
-	log logging.Logger
+	log           logging.Logger
+	retryAttempts int
+	retryDelay    time.Duration
 }
 
 // DefaultOptions returns default options
 func DefaultOptions() *Options {
 	return &Options{
-		log: logging.New(os.Stdout, 4),
+		log:           logging.New(os.Stdout, 4),
+		retryAttempts: 1,
+	}
+}
+
+// WithRetryOption retries a transfer whose transaction failed to reach the
+// chain, up to attempts times, waiting delay in between. Every attempt reuses
+// the nonce reserved by the first one, so a retry cannot fund an address twice.
+// It only applies to the wallet the funder builds itself, not to one passed in.
+func WithRetryOption(attempts int, delay time.Duration) FunderOptions {
+	return func(o *Options) {
+		o.retryAttempts = attempts
+		o.retryDelay = delay
 	}
 }
 
@@ -55,7 +70,7 @@ func Fund(
 	}
 
 	if fundingWallet == nil {
-		fundingWallet, err = makeFundingWallet(ctx, cfg)
+		fundingWallet, err = makeFundingWallet(ctx, cfg, opts)
 		if err != nil {
 			return fmt.Errorf("make funding wallet: %w", err)
 		}
@@ -353,7 +368,7 @@ func formatAmount(amount *big.Int, decimals int) string {
 	return a.String()
 }
 
-func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) {
+func makeFundingWallet(ctx context.Context, cfg Config, opts *Options) (*wallet.Wallet, error) {
 	key, err := makeWalletKey(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("making wallet key failed: %w", err)
@@ -369,7 +384,7 @@ func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) 
 		return nil, fmt.Errorf("making eth client failed: %w", err)
 	}
 
-	fundingWallet := wallet.New(ethClient, key)
+	fundingWallet := wallet.New(ethClient, key, wallet.WithRetry(opts.retryAttempts, opts.retryDelay))
 
 	return fundingWallet, nil
 }
