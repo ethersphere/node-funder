@@ -37,10 +37,13 @@ func DefaultOptions() *Options {
 	}
 }
 
-// WithRetryOption retries a transfer whose transaction failed to reach the
-// chain, up to attempts times, waiting delay in between. Every attempt reuses
-// the nonce reserved by the first one, so a retry cannot fund an address twice.
-// It only applies to the wallet the funder builds itself, not to one passed in.
+// WithRetryOption re-sends a transfer whose transaction failed to reach the
+// chain, for at most attempts sends in total including the first, waiting delay
+// in between. Every attempt re-sends the same signed transaction on the nonce
+// reserved for it, so a retry cannot fund an address twice.
+//
+// It only applies to the wallet the funder builds itself: pass no wallet to Fund
+// for it to take effect.
 func WithRetryOption(attempts int, delay time.Duration) FunderOptions {
 	return func(o *Options) {
 		o.retryAttempts = attempts

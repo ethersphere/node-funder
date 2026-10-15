@@ -46,13 +46,27 @@ type Wallet struct {
 type Option func(*options)
 
 type options struct {
-	retryAttempts int
-	retryDelay    time.Duration
+	retryAttempts  int
+	retryDelay     time.Duration
+	lookupTimeout  time.Duration
+	lookupInterval time.Duration
 }
 
-// WithRetry retries a transaction that failed to reach the chain, up to
-// attempts times, waiting delay in between. Every attempt reuses the nonce
-// reserved by the first one, so at most one of them can ever be mined.
+const (
+	defaultLookupTimeout  = 15 * time.Second
+	defaultLookupInterval = time.Second
+)
+
+// WithRetry re-sends a transaction whose send failed, for at most attempts sends
+// in total including the first, waiting delay in between. Anything below 1 counts
+// as 1, which is the default and sends once.
+//
+// Every attempt re-sends the very same signed transaction, reusing the nonce
+// reserved for it, so at most one of them can ever be mined. That makes a retry
+// safe however far the failed attempt got, but it also means the gas price is not
+// recalculated: this helps a send that failed to reach the node, not one the node
+// rejected on its merits. A failed attempt first waits out the lookup window (see
+// WithLookup) and only then the delay.
 func WithRetry(attempts int, delay time.Duration) Option {
 	return func(o *options) {
 		o.retryAttempts = attempts
@@ -60,8 +74,29 @@ func WithRetry(attempts int, delay time.Duration) Option {
 	}
 }
 
+// WithLookup sets how long a transaction whose send failed is given to turn up
+// on the chain before the transfer is reported as failed, and how often the chain
+// is asked in the meantime. The defaults are 15 seconds and one second. A timeout
+// or interval at or below zero asks once, with the default timeout bounding that
+// one question.
+//
+// A node may reject a send it did in fact keep: Nethermind answers "replacement
+// transaction underpriced" for a transaction already in its pool, and an endpoint
+// fronting several nodes may answer before the transaction has reached the one
+// asked. The lookup settles such a transfer as sent once the chain holds it.
+func WithLookup(timeout, interval time.Duration) Option {
+	return func(o *options) {
+		o.lookupTimeout = timeout
+		o.lookupInterval = interval
+	}
+}
+
 func New(client BackendClient, key Key, opts ...Option) *Wallet {
-	o := &options{retryAttempts: 1}
+	o := &options{
+		retryAttempts:  1,
+		lookupTimeout:  defaultLookupTimeout,
+		lookupInterval: defaultLookupInterval,
+	}
 	for _, opt := range opts {
 		opt(o)
 	}
