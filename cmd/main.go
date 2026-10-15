@@ -10,9 +10,11 @@ import (
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/ethersphere/beekeeper/pkg/logging"
 	"github.com/ethersphere/node-funder/pkg/funder"
+	"github.com/ethersphere/node-funder/pkg/wallet"
 	"github.com/spf13/cobra"
 )
 
@@ -23,10 +25,19 @@ const (
 func main() {
 	cfg := funder.Config{}
 
-	var logLevel string
+	var (
+		logLevel      string
+		retryAttempts int
+		retryDelay    time.Duration
+		logger        logging.Logger
+	)
 
 	rootCmd := &cobra.Command{
 		Use: "funder",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) (err error) {
+			logger, err = newLogger(cmd, logLevel)
+			return err
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := cmd.Help(); err != nil {
 				log.Fatal(err)
@@ -36,16 +47,11 @@ func main() {
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, optionLogVerbosity, "info", "log verbosity level 0=silent, 1=error, 2=warn, 3=info, 4=debug, 5=trace")
 
-	logger, err := newLogger(rootCmd, logLevel)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	fundCmd := &cobra.Command{
 		Use:   "fund",
 		Short: "fund (top up) bee node wallets",
 		Run: func(cmd *cobra.Command, args []string) {
-			doFund(cfg, logger)
+			doFund(cfg, logger, retryAttempts, retryDelay)
 		},
 	}
 
@@ -55,6 +61,8 @@ func main() {
 	fundCmd.PersistentFlags().StringVar(&cfg.WalletKey, "walletKey", "", "wallet key")
 	fundCmd.PersistentFlags().Float64Var(&cfg.MinAmounts.NativeCoin, "minNative", 0, "specifies min amount of chain native coins (DAI) nodes should have")
 	fundCmd.PersistentFlags().Float64Var(&cfg.MinAmounts.SwarmToken, "minSwarm", 0, "specifies min amount of swarm tokens (BZZ) nodes should have")
+	fundCmd.PersistentFlags().IntVar(&retryAttempts, "retryAttempts", 1, "number of attempts to send a transaction whose send failed")
+	fundCmd.PersistentFlags().DurationVar(&retryDelay, "retryDelay", 5*time.Second, "delay between send attempts")
 
 	stakeCmd := &cobra.Command{
 		Use:   "stake",
@@ -69,11 +77,11 @@ func main() {
 	rootCmd.AddCommand(fundCmd, stakeCmd)
 
 	if err := rootCmd.Execute(); err != nil {
-		logger.Fatal(err)
+		log.Fatal(err)
 	}
 }
 
-func doFund(cfg funder.Config, logger logging.Logger) {
+func doFund(cfg funder.Config, logger logging.Logger, retryAttempts int, retryDelay time.Duration) {
 	ctx := context.Background()
 
 	if cfg.Namespace == "" && len(cfg.Addresses) == 0 {
@@ -91,7 +99,9 @@ func doFund(cfg funder.Config, logger logging.Logger) {
 		return
 	}
 
-	if err := funder.Fund(ctx, cfg, nil, nil); err != nil {
+	walletOpts := funder.WithWalletOptions(wallet.WithRetry(retryAttempts, retryDelay))
+
+	if err := funder.Fund(ctx, cfg, nil, nil, funder.WithLoggerOption(logger), walletOpts); err != nil {
 		logger.Fatalf("error while funding: %v", err)
 	}
 }
@@ -104,7 +114,7 @@ func doStake(cfg funder.Config, logger logging.Logger) {
 		return
 	}
 
-	if err := funder.Stake(ctx, cfg, nil); err != nil {
+	if err := funder.Stake(ctx, cfg, nil, funder.WithLoggerOption(logger)); err != nil {
 		logger.Fatalf("error while funding: %v", err)
 	}
 }

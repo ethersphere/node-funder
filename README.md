@@ -19,6 +19,8 @@ It can be used as a standalone CLI (see [Command examples](#command-examples) be
   - `addresses` - comma separated list of wallet addresses (hex encoded string value) to fund wallets directly
 - `minSwarm` - min amount of Swarm tokens node should have (on mainnet this is xBZZ). Node is not funded if it already has more then specified.
 - `minNative` - min amount of blockchain native tokens node should have (on mainnet this is xDAI). Node is not funded if it already has more then specified.
+- `retryAttempts` - optional, number of attempts to send a transaction whose send failed (default 1). Every attempt re-sends the same signed transaction.
+- `retryDelay` - optional, delay between send attempts (default 5s).
 
 ### Staking node
 
