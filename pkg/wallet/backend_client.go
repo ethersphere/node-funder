@@ -21,5 +21,6 @@ type BackendClient interface {
 	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
 	EstimateGas(ctx context.Context, call ethereum.CallMsg) (gas uint64, err error)
 	SendTransaction(ctx context.Context, tx *types.Transaction) error
+	TransactionByHash(ctx context.Context, hash common.Hash) (*types.Transaction, bool, error)
 	BalanceAt(ctx context.Context, address common.Address, block *big.Int) (*big.Int, error)
 }

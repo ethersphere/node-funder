@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -41,8 +42,54 @@ type Wallet struct {
 	erc20  TokenWallet
 }
 
-func New(client BackendClient, key Key) *Wallet {
-	trxSender := newTransactionSender(client, key)
+// Option configures a Wallet.
+type Option func(*options)
+
+type options struct {
+	retries        int
+	retryDelay     time.Duration
+	lookupTimeout  time.Duration
+	lookupInterval time.Duration
+}
+
+const (
+	defaultLookupTimeout  = 15 * time.Second
+	defaultLookupInterval = time.Second
+)
+
+// WithRetry sets how many times a failed send is retried, waiting delay between
+// attempts. The default is 0, which sends once; negative values count as 0.
+// Every attempt re-sends the same signed transaction, so at most one can be
+// mined. A transaction the node rejected is not retried.
+func WithRetry(retries int, delay time.Duration) Option {
+	return func(o *options) {
+		o.retries = retries
+		o.retryDelay = delay
+	}
+}
+
+// WithLookup sets how long, and how often, the chain is asked for a transaction
+// whose send failed before the send is reported as failed. The defaults are 15s
+// and 1s. A timeout at or below zero uses the default, an interval at or below
+// zero asks once. Some nodes reject a transaction they did keep, e.g. Nethermind
+// answers "replacement transaction underpriced" for one already in its pool.
+func WithLookup(timeout, interval time.Duration) Option {
+	return func(o *options) {
+		o.lookupTimeout = timeout
+		o.lookupInterval = interval
+	}
+}
+
+func New(client BackendClient, key Key, opts ...Option) *Wallet {
+	o := &options{
+		lookupTimeout:  defaultLookupTimeout,
+		lookupInterval: defaultLookupInterval,
+	}
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	trxSender := newTransactionSender(client, key, o)
 
 	return &Wallet{
 		key:    key,

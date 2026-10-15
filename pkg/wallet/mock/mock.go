@@ -50,6 +50,10 @@ func (c *client) SendTransaction(context.Context, *types.Transaction) error {
 	return nil
 }
 
+func (c *client) TransactionByHash(context.Context, common.Hash) (*types.Transaction, bool, error) {
+	return nil, false, ethereum.NotFound
+}
+
 func (c *client) BalanceAt(context.Context, common.Address, *big.Int) (*big.Int, error) {
 	// 1 xDAI
 	return big.NewInt(1000000000000000000), nil

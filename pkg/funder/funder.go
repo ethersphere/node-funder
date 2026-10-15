@@ -23,13 +23,22 @@ type FunderOptions func(*Options)
 
 // Options represents funder options
 type Options struct {
-	log logging.Logger
+	log        logging.Logger
+	walletOpts []wallet.Option
 }
 
 // DefaultOptions returns default options
 func DefaultOptions() *Options {
 	return &Options{
 		log: logging.New(os.Stdout, 4),
+	}
+}
+
+// WithWalletOptions sets options for the wallet the funder creates. They are
+// ignored when a wallet is passed to Fund.
+func WithWalletOptions(opts ...wallet.Option) FunderOptions {
+	return func(o *Options) {
+		o.walletOpts = append(o.walletOpts, opts...)
 	}
 }
 
@@ -55,7 +64,7 @@ func Fund(
 	}
 
 	if fundingWallet == nil {
-		fundingWallet, err = makeFundingWallet(ctx, cfg)
+		fundingWallet, err = makeFundingWallet(ctx, cfg, opts)
 		if err != nil {
 			return fmt.Errorf("make funding wallet: %w", err)
 		}
@@ -353,7 +362,7 @@ func formatAmount(amount *big.Int, decimals int) string {
 	return a.String()
 }
 
-func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) {
+func makeFundingWallet(ctx context.Context, cfg Config, opts *Options) (*wallet.Wallet, error) {
 	key, err := makeWalletKey(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("making wallet key failed: %w", err)
@@ -369,7 +378,7 @@ func makeFundingWallet(ctx context.Context, cfg Config) (*wallet.Wallet, error) 
 		return nil, fmt.Errorf("making eth client failed: %w", err)
 	}
 
-	fundingWallet := wallet.New(ethClient, key)
+	fundingWallet := wallet.New(ethClient, key, opts.walletOpts...)
 
 	return fundingWallet, nil
 }
