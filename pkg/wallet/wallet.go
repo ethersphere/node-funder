@@ -57,16 +57,10 @@ const (
 	defaultLookupInterval = time.Second
 )
 
-// WithRetry re-sends a transaction whose send failed, for at most attempts sends
-// in total including the first, waiting delay in between. Anything below 1 counts
-// as 1, which is the default and sends once.
-//
-// Every attempt re-sends the very same signed transaction, reusing the nonce
-// reserved for it, so at most one of them can ever be mined. That makes a retry
-// safe however far the failed attempt got, but it also means the gas price is not
-// recalculated: this helps a send that failed to reach the node, not one the node
-// rejected on its merits. A failed attempt first waits out the lookup window (see
-// WithLookup) and only then the delay.
+// WithRetry sets how many times a failed send is attempted in total, waiting
+// delay between attempts. Values below 1 mean a single attempt, the default.
+// Every attempt re-sends the same signed transaction, so at most one can be
+// mined. A transaction the node rejected is not retried.
 func WithRetry(attempts int, delay time.Duration) Option {
 	return func(o *options) {
 		o.retryAttempts = attempts
@@ -74,16 +68,11 @@ func WithRetry(attempts int, delay time.Duration) Option {
 	}
 }
 
-// WithLookup sets how long a transaction whose send failed is given to turn up
-// on the chain before the transfer is reported as failed, and how often the chain
-// is asked in the meantime. The defaults are 15 seconds and one second. A timeout
-// or interval at or below zero asks once, with the default timeout bounding that
-// one question.
-//
-// A node may reject a send it did in fact keep: Nethermind answers "replacement
-// transaction underpriced" for a transaction already in its pool, and an endpoint
-// fronting several nodes may answer before the transaction has reached the one
-// asked. The lookup settles such a transfer as sent once the chain holds it.
+// WithLookup sets how long, and how often, the chain is asked for a transaction
+// whose send failed before the send is reported as failed. The defaults are 15s
+// and 1s. A timeout at or below zero uses the default, an interval at or below
+// zero asks once. Some nodes reject a transaction they did keep, e.g. Nethermind
+// answers "replacement transaction underpriced" for one already in its pool.
 func WithLookup(timeout, interval time.Duration) Option {
 	return func(o *options) {
 		o.lookupTimeout = timeout

@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -24,30 +23,22 @@ type FunderOptions func(*Options)
 
 // Options represents funder options
 type Options struct {
-	log           logging.Logger
-	retryAttempts int
-	retryDelay    time.Duration
+	log        logging.Logger
+	walletOpts []wallet.Option
 }
 
 // DefaultOptions returns default options
 func DefaultOptions() *Options {
 	return &Options{
-		log:           logging.New(os.Stdout, 4),
-		retryAttempts: 1,
+		log: logging.New(os.Stdout, 4),
 	}
 }
 
-// WithRetryOption re-sends a transfer whose transaction failed to reach the
-// chain, for at most attempts sends in total including the first, waiting delay
-// in between. Every attempt re-sends the same signed transaction on the nonce
-// reserved for it, so a retry cannot fund an address twice.
-//
-// It only applies to the wallet the funder builds itself: pass no wallet to Fund
-// for it to take effect.
-func WithRetryOption(attempts int, delay time.Duration) FunderOptions {
+// WithWalletOptions sets options for the wallet the funder creates. They are
+// ignored when a wallet is passed to Fund.
+func WithWalletOptions(opts ...wallet.Option) FunderOptions {
 	return func(o *Options) {
-		o.retryAttempts = attempts
-		o.retryDelay = delay
+		o.walletOpts = append(o.walletOpts, opts...)
 	}
 }
 
@@ -387,7 +378,7 @@ func makeFundingWallet(ctx context.Context, cfg Config, opts *Options) (*wallet.
 		return nil, fmt.Errorf("making eth client failed: %w", err)
 	}
 
-	fundingWallet := wallet.New(ethClient, key, wallet.WithRetry(opts.retryAttempts, opts.retryDelay))
+	fundingWallet := wallet.New(ethClient, key, opts.walletOpts...)
 
 	return fundingWallet, nil
 }

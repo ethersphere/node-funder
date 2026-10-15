@@ -25,28 +25,20 @@ import (
 
 const (
 	testAddress = "0x95f8916183f7C7154e49396507F5b0FafA4d8077"
-	// startNonce is deliberately not zero, so that a nonce which is reused and
-	// one which is freshly fetched can be told apart.
+	// startNonce is not zero, so a reused nonce and a freshly fetched one differ.
 	startNonce = 7
 )
 
 var errSendFailed = errors.New("mock error: cannot send transaction")
 
-// Lookups are kept short, so that a test whose transaction never turns up on the
-// chain does not sit out the real window.
+// Short lookups keep tests whose transaction never shows up fast.
 const (
 	shortLookupTimeout  = 100 * time.Millisecond
 	shortLookupInterval = time.Millisecond
 )
 
-// Test_Send_RetriesWithSameNonce covers retrying a transfer whose send failed.
-// Every attempt must reuse the nonce reserved by the first one, since two
-// transactions sharing a nonce can never both be mined, which is what makes a
-// retry safe regardless of how far the failed attempt got.
-//
-// It must also re-send the very same signed transaction. A re-signed attempt
-// would carry a different hash, and then neither the lookup nor an "already
-// known" answer could tell whether an earlier attempt had landed.
+// Test_Send_RetriesWithSameNonce checks that every retry re-sends the same
+// signed transaction, so at most one attempt can be mined.
 func Test_Send_RetriesWithSameNonce(t *testing.T) {
 	t.Parallel()
 
@@ -60,13 +52,11 @@ func Test_Send_RetriesWithSameNonce(t *testing.T) {
 
 	hashes := c.sentHashes()
 	require.Len(t, hashes, 3)
-	assert.Equal(t, []common.Hash{hashes[0], hashes[0], hashes[0]}, hashes,
-		"every attempt must re-send the transaction signed for the first one")
+	assert.Equal(t, []common.Hash{hashes[0], hashes[0], hashes[0]}, hashes)
 }
 
-// Test_Send_AttemptsBelowOneSendOnce covers the floor on the attempt count. A
-// zero or negative count must still send once and then stop, rather than leaving
-// the retry loop without a way out.
+// Test_Send_AttemptsBelowOneSendOnce checks that an attempt count below one
+// still sends once.
 func Test_Send_AttemptsBelowOneSendOnce(t *testing.T) {
 	t.Parallel()
 
@@ -85,30 +75,28 @@ func Test_Send_AttemptsBelowOneSendOnce(t *testing.T) {
 	}
 }
 
-// Test_Send_GasFailureDoesNotConsumeNonce covers a transfer that fails before it
-// is ever broadcast. It must not consume the nonce, otherwise it leaves a gap
-// behind which every later transaction queues forever.
+// Test_Send_GasFailureDoesNotConsumeNonce checks that a transfer failing before
+// it is sent leaves no nonce gap.
 func Test_Send_GasFailureDoesNotConsumeNonce(t *testing.T) {
 	t.Parallel()
 
 	c := newScriptedClient()
-	c.gasFailures = -1 // fail until told otherwise
+	c.gasFailures = -1
 
 	w := newWallet(t, c, wallet.WithRetry(2, 0))
 	addr := common.HexToAddress(testAddress)
 
 	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
-	require.Empty(t, c.sentNonces(), "nothing should have been broadcast")
+	require.Empty(t, c.sentNonces())
 
 	c.gasFailures = 0
 
 	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
-	assert.Equal(t, []uint64{startNonce}, c.sentNonces(), "the unused nonce must still be available")
+	assert.Equal(t, []uint64{startNonce}, c.sentNonces())
 }
 
-// Test_Send_AcceptedDespiteSendError covers a send whose response was lost
-// although the node did take the transaction. Asking the chain about the hash
-// settles it, so the transfer counts as done and its nonce stays used.
+// Test_Send_AcceptedDespiteSendError checks that a failed send whose transaction
+// is on the chain counts as done and keeps its nonce used.
 func Test_Send_AcceptedDespiteSendError(t *testing.T) {
 	t.Parallel()
 
@@ -125,21 +113,11 @@ func Test_Send_AcceptedDespiteSendError(t *testing.T) {
 	c.accepted = false
 
 	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
-	assert.Equal(t, []uint64{startNonce, startNonce + 1}, c.sentNonces(),
-		"the nonce of a transaction on the chain must not be handed out again")
+	assert.Equal(t, []uint64{startNonce, startNonce + 1}, c.sentNonces())
 }
 
-// Test_Send_BroadcastNonceIsNeverReused covers a send which failed after the
-// transaction was already handed to the node. A lost response cannot be told
-// apart from a rejection over a single RPC hop, and the endpoint may front
-// several nodes, so a lookup answering NotFound does not prove the transaction
-// is absent. Reusing such a nonce puts two different transactions on it, and
-// whichever loses leaves an address unfunded while its caller was told the
-// transfer succeeded.
-//
-// The errors which mean the nonce is held by someone else's transaction are
-// covered too: handing those back would keep the sender grinding on a nonce that
-// can never be accepted, so nothing would ever get funded.
+// Test_Send_BroadcastNonceIsNeverReused checks that a failed send never hands
+// its nonce back, since the node may still hold the transaction.
 func Test_Send_BroadcastNonceIsNeverReused(t *testing.T) {
 	t.Parallel()
 
@@ -164,16 +142,88 @@ func Test_Send_BroadcastNonceIsNeverReused(t *testing.T) {
 				require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
 			}
 
-			assert.Equal(t, []uint64{startNonce, startNonce + 1, startNonce + 2}, c.sentNonces(),
-				"each transfer must move on to a fresh nonce")
+			assert.Equal(t, []uint64{startNonce, startNonce + 1, startNonce + 2}, c.sentNonces())
 		})
 	}
 }
 
-// Test_Send_ConcurrentFailuresNeverShareNonce covers the shape the funder
-// actually runs: many goroutines sharing one sender. A nonce burned by a failed
-// broadcast must not resurface for a later transfer, however the reservations
-// and the failures interleave.
+// Test_Send_NonceTooLowResyncsNonce checks that a nonce taken by another sender
+// moves the next nonce up to the node's pending nonce.
+func Test_Send_NonceTooLowResyncsNonce(t *testing.T) {
+	t.Parallel()
+
+	c := newScriptedClient()
+	c.pendingNonces = []uint64{startNonce, startNonce + 5}
+	c.sendErrs = []error{errors.New("nonce too low")}
+
+	w := newWallet(t, c)
+	addr := common.HexToAddress(testAddress)
+
+	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	assert.Equal(t, []uint64{startNonce, startNonce + 5}, c.sentNonces())
+}
+
+// Test_Send_NonceResyncNeverMovesBack checks that a stale pending nonce does not
+// hand out a nonce again.
+func Test_Send_NonceResyncNeverMovesBack(t *testing.T) {
+	t.Parallel()
+
+	c := newScriptedClient()
+	c.pendingNonces = []uint64{startNonce, 0}
+	c.sendErrs = []error{errors.New("nonce too low")}
+
+	w := newWallet(t, c)
+	addr := common.HexToAddress(testAddress)
+
+	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	assert.Equal(t, []uint64{startNonce, startNonce + 1}, c.sentNonces())
+}
+
+// Test_Send_RejectedIsNotRetried checks that a transaction the node rejected is
+// neither re-sent nor polled for.
+func Test_Send_RejectedIsNotRetried(t *testing.T) {
+	t.Parallel()
+
+	for _, msg := range []string{
+		"insufficient funds for gas * price + value",
+		"intrinsic gas too low",
+		"exceeds block gas limit",
+		"nonce too low",
+	} {
+		t.Run(msg, func(t *testing.T) {
+			t.Parallel()
+
+			c := newScriptedClient()
+			c.sendErr = errors.New(msg)
+
+			w := newWallet(t, c, wallet.WithRetry(3, 0), wallet.WithLookup(time.Minute, time.Millisecond))
+
+			require.Error(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
+			assert.Len(t, c.sentNonces(), 1)
+			assert.Equal(t, 1, c.lookupCount())
+		})
+	}
+}
+
+// Test_Send_NonceTooLowAfterRetryPolls checks that "nonce too low" on a retry
+// polls the chain, since the earlier attempt may be the one that was mined.
+func Test_Send_NonceTooLowAfterRetryPolls(t *testing.T) {
+	t.Parallel()
+
+	c := newScriptedClient()
+	c.sendErrs = []error{errSendFailed, errors.New("nonce too low")}
+	c.knownAfterSends = 2
+
+	w := newWallet(t, c, wallet.WithRetry(2, 0))
+
+	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
+	assert.Equal(t, []uint64{startNonce, startNonce}, c.sentNonces())
+}
+
+// Test_Send_ConcurrentFailuresNeverShareNonce checks that concurrent transfers
+// sharing one sender never broadcast the same nonce twice.
 func Test_Send_ConcurrentFailuresNeverShareNonce(t *testing.T) {
 	t.Parallel()
 
@@ -207,13 +257,11 @@ func Test_Send_ConcurrentFailuresNeverShareNonce(t *testing.T) {
 		seen[nonce] = struct{}{}
 	}
 
-	assert.Len(t, seen, len(nonces), "a broadcast nonce must never be broadcast again: %v", nonces)
+	assert.Len(t, seen, len(nonces), "nonces: %v", nonces)
 }
 
-// Test_Send_LandedTransactionSurvivesCancellation covers the deadline firing
-// while the send is in flight. The node kept the transaction, so the transfer
-// must not be reported as failed, which means the lookup needs a context of its
-// own rather than the one that just expired.
+// Test_Send_LandedTransactionSurvivesCancellation checks that a send cut short
+// by its context still counts as done when the chain holds the transaction.
 func Test_Send_LandedTransactionSurvivesCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -227,33 +275,53 @@ func Test_Send_LandedTransactionSurvivesCancellation(t *testing.T) {
 
 	w := newWallet(t, c)
 
-	require.NoError(t, w.TransferNative(ctx, common.HexToAddress(testAddress), big.NewInt(1)),
-		"a transaction the chain holds must not be reported as failed because the context died")
+	require.NoError(t, w.TransferNative(ctx, common.HexToAddress(testAddress), big.NewInt(1)))
 }
 
-// Test_Send_AlreadyKnownCountsAsSent covers a node answering that it already
-// holds the transaction. That is a positive statement about our own hash, so it
-// settles the transfer even when a lookup cannot, which is what happens when the
-// endpoint fronts several nodes and the lookup reaches a different one.
+// Test_Send_CancellationStopsLookup checks that cancelling the context ends the
+// lookup instead of waiting out its window.
+func Test_Send_CancellationStopsLookup(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := newScriptedClient()
+	c.cancelOnSend = cancel
+	c.sendErr = errSendFailed
+
+	w := newWallet(t, c, wallet.WithLookup(time.Minute, time.Millisecond))
+
+	start := time.Now()
+	err := w.TransferNative(ctx, common.HexToAddress(testAddress), big.NewInt(1))
+
+	require.ErrorIs(t, err, errSendFailed)
+	assert.Less(t, time.Since(start), 5*time.Second)
+	assert.GreaterOrEqual(t, c.lookupCount(), 1, "the chain must be asked at least once")
+}
+
+// Test_Send_AlreadyKnownCountsAsSent checks that a node saying it already holds
+// the transaction settles the transfer, even when the lookup cannot.
 func Test_Send_AlreadyKnownCountsAsSent(t *testing.T) {
 	t.Parallel()
 
-	c := newScriptedClient()
-	c.sendErrs = []error{errSendFailed, errors.New("already known")}
-	c.accepted = false // the lookup reaches a node which has not seen it
+	for _, msg := range []string{"already known", "AlreadyKnown"} {
+		t.Run(msg, func(t *testing.T) {
+			t.Parallel()
 
-	w := newWallet(t, c, wallet.WithRetry(2, 0))
+			c := newScriptedClient()
+			c.sendErrs = []error{errSendFailed, errors.New(msg)}
 
-	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
-	assert.Equal(t, []uint64{startNonce, startNonce}, c.sentNonces())
+			w := newWallet(t, c, wallet.WithRetry(2, 0))
+
+			require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
+			assert.Equal(t, []uint64{startNonce, startNonce}, c.sentNonces())
+		})
+	}
 }
 
-// Test_Send_EstimatesGasForTheValueSent covers the gas limit put on a transfer.
-// The estimate must be asked for the very call being made, value included: a
-// node estimates a transfer of nothing below the intrinsic cost of one that
-// carries value, and the transaction then fails as "intrinsic gas too low". The
-// estimate must also be boosted, so a transaction slightly costlier than
-// estimated is not rejected.
+// Test_Send_EstimatesGasForTheValueSent checks that the estimate includes the
+// value sent and that the gas limit is boosted by 30%.
 func Test_Send_EstimatesGasForTheValueSent(t *testing.T) {
 	t.Parallel()
 
@@ -265,37 +333,32 @@ func Test_Send_EstimatesGasForTheValueSent(t *testing.T) {
 	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(42)))
 
 	require.Len(t, c.gasCalls, 1)
-	require.NotNil(t, c.gasCalls[0].Value, "the estimate must carry the value being sent")
+	require.NotNil(t, c.gasCalls[0].Value)
 	assert.Equal(t, int64(42), c.gasCalls[0].Value.Int64())
 
 	gas := c.sentGas()
 	require.Len(t, gas, 1)
-	assert.Equal(t, uint64(27_300), gas[0], "the estimate must be boosted by 30%")
+	assert.Equal(t, uint64(27_300), gas[0])
 }
 
-// Test_Send_LookupWaitsForTheTransactionToAppear covers a node rejecting a send
-// it did in fact keep: Nethermind answers "replacement transaction underpriced"
-// for a transaction already in its pool, and an endpoint fronting several nodes
-// may answer before the transaction has reached the one asked. A single lookup
-// right after the send misses such a transfer, so the chain is asked again for a
-// while before the transfer is given up on.
+// Test_Send_LookupWaitsForTheTransactionToAppear checks that the chain is asked
+// again until a transaction the node kept shows up.
 func Test_Send_LookupWaitsForTheTransactionToAppear(t *testing.T) {
 	t.Parallel()
 
 	c := newScriptedClient()
 	c.sendErr = errors.New("replacement transaction underpriced")
-	c.knownAfter = 2 // the first two lookups answer NotFound
+	c.knownAfter = 2
 
 	w := newWallet(t, c)
 
 	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
-	assert.Equal(t, []uint64{startNonce}, c.sentNonces(), "the transfer must not be re-sent")
-	assert.Equal(t, 3, c.lookupCount(), "the lookup must be repeated until the chain holds the transaction")
+	assert.Equal(t, []uint64{startNonce}, c.sentNonces())
+	assert.Equal(t, 3, c.lookupCount())
 }
 
-// Test_Send_LookupGivesUpAfterTimeout covers a transaction which never turns up.
-// The chain is asked more than once, but not forever: once the window is over,
-// the transfer is reported as failed.
+// Test_Send_LookupGivesUpAfterTimeout checks that the lookup stops once its
+// window is over and the transfer is reported as failed.
 func Test_Send_LookupGivesUpAfterTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -306,12 +369,11 @@ func Test_Send_LookupGivesUpAfterTimeout(t *testing.T) {
 
 	err := w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1))
 	require.ErrorIs(t, err, errSendFailed)
-	assert.GreaterOrEqual(t, c.lookupCount(), 2, "the chain must be asked more than once")
+	assert.GreaterOrEqual(t, c.lookupCount(), 2)
 }
 
-// Test_Send_LookupWithoutIntervalAsksOnce covers an interval at or below zero,
-// which must mean a single lookup rather than hammering the node for the whole
-// window.
+// Test_Send_LookupWithoutIntervalAsksOnce checks that an interval at or below
+// zero asks the chain once.
 func Test_Send_LookupWithoutIntervalAsksOnce(t *testing.T) {
 	t.Parallel()
 
@@ -324,8 +386,8 @@ func Test_Send_LookupWithoutIntervalAsksOnce(t *testing.T) {
 	assert.Equal(t, 1, c.lookupCount())
 }
 
-// newWallet builds a wallet on the scripted client with short lookups, which the
-// given options may override.
+// newWallet builds a wallet on the scripted client with short lookups, which
+// opts may override.
 func newWallet(t *testing.T, c *scriptedClient, opts ...wallet.Option) *wallet.Wallet {
 	t.Helper()
 
@@ -343,25 +405,30 @@ func generateKey(t *testing.T) wallet.Key {
 	return key
 }
 
-// scriptedClient fails a configurable number of gas estimations and sends, and
-// records the nonce of every transaction handed to the chain.
+// scriptedClient fails gas estimations and sends as configured, and records
+// every transaction sent.
 type scriptedClient struct {
 	wallet.BackendClient
 
 	mu            sync.Mutex
-	gasFailures   int    // negative means always
-	gasEstimate   uint64 // returned by every successful estimate; zero defers to the mock
+	pendingNonces []uint64 // one per call, the last one repeating; empty means startNonce
+	gasFailures   int      // negative means always
+	gasEstimate   uint64   // zero defers to the mock
 	gasCalls      []ethereum.CallMsg
 	gasPriceCalls int
-	sendErrs      []error // consumed one per send, before sendErr applies
-	sendErr       error   // returned by every further send
-	accepted      bool    // whether the chain admits to holding the transactions
-	knownAfter    int     // lookups answering NotFound before the chain admits to holding the transactions
-	lookups       int
-	cancelOnSend  func() // fires while the send is in flight
-	nonces        []uint64
-	hashes        []common.Hash
-	gas           []uint64
+	sendErrs      []error // one per send, before sendErr applies
+	sendErr       error
+	accepted      bool // whether lookups find the transaction
+	knownAfter    int  // lookups answering NotFound before the transaction is found
+	// knownAfterSends makes lookups find the transaction once this many sends
+	// were made, from the second lookup after that on.
+	knownAfterSends int
+	lookupsAfter    int
+	lookups         int
+	cancelOnSend    func()
+	nonces          []uint64
+	hashes          []common.Hash
+	gas             []uint64
 }
 
 func newScriptedClient() *scriptedClient {
@@ -397,12 +464,24 @@ func (c *scriptedClient) sentGas() []uint64 {
 }
 
 func (c *scriptedClient) PendingNonceAt(context.Context, common.Address) (uint64, error) {
-	return startNonce, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	switch len(c.pendingNonces) {
+	case 0:
+		return startNonce, nil
+	case 1:
+		return c.pendingNonces[0], nil
+	}
+
+	nonce := c.pendingNonces[0]
+	c.pendingNonces = c.pendingNonces[1:]
+
+	return nonce, nil
 }
 
-// SuggestGasPrice moves with every call, the way a real one does, so that a
-// transaction signed a second time cannot come out with the same hash by
-// accident.
+// SuggestGasPrice changes on every call, so a re-signed transaction cannot get
+// the same hash by accident.
 func (c *scriptedClient) SuggestGasPrice(context.Context) (*big.Int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -464,6 +543,13 @@ func (c *scriptedClient) TransactionByHash(ctx context.Context, _ common.Hash) (
 	defer c.mu.Unlock()
 
 	c.lookups++
+
+	if c.knownAfterSends > 0 && len(c.nonces) >= c.knownAfterSends {
+		c.lookupsAfter++
+		if c.lookupsAfter > 1 {
+			return types.NewTx(&types.DynamicFeeTx{}), true, nil
+		}
+	}
 
 	if c.accepted || (c.knownAfter > 0 && c.lookups > c.knownAfter) {
 		return types.NewTx(&types.DynamicFeeTx{}), true, nil

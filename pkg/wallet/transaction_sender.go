@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,14 +23,16 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-const (
-	defaultBoostPercent = 30
+const defaultBoostPercent = 30
 
-	// alreadyKnownMsg is what a node answers when it already holds the
-	// transaction being sent (go-ethereum's txpool.ErrAlreadyKnown). It arrives
-	// as a JSON-RPC error carrying no sentinel to compare against, so the
-	// message is matched instead.
-	alreadyKnownMsg = "already known"
+// Nodes report these as plain JSON-RPC errors, so they are matched by message.
+var (
+	// The node already holds the transaction (geth, Nethermind).
+	alreadyKnownMsgs = []string{"already known", "alreadyknown"}
+	// The nonce is already used on chain.
+	nonceTooLowMsgs = []string{"nonce too low"}
+	// The node rejected the transaction itself, so re-sending it cannot help.
+	rejectedMsgs = []string{"nonce too low", "insufficient funds", "intrinsic gas too low", "exceeds block gas limit"}
 )
 
 type TransactionSender interface {
@@ -79,16 +82,10 @@ func (s *transactionSender) Send(
 	return s.sendWithNonce(ctx, chainID, toAddr, fromAddress, amount, callData)
 }
 
-// sendWithNonce reserves a nonce and retries the send with that same nonce, so
-// that at most one attempt can ever be mined.
-//
-// Gas is estimated before the nonce is reserved: it needs no nonce and is the
-// likeliest thing to fail over a flaky endpoint, so a failure there must not hold
-// one. Once the transaction has been handed to the node the nonce is spent for
-// good - a lost response cannot be told apart from a rejection over a single RPC
-// hop, and an endpoint fronting several nodes cannot prove the node did not keep
-// it. Handing such a nonce back would put a later, different transaction on it,
-// and whichever of the two loses leaves an address unfunded.
+// sendWithNonce signs the transaction once on a newly reserved nonce and sends
+// it. The nonce is never handed back: a failed send cannot prove the node did
+// not keep the transaction, and putting a different one on the same nonce could
+// leave an address unfunded.
 func (s *transactionSender) sendWithNonce(
 	ctx context.Context,
 	chainID *big.Int,
@@ -97,8 +94,8 @@ func (s *transactionSender) sendWithNonce(
 	amount *big.Int,
 	callData []byte,
 ) error {
-	// The value goes into the estimate as well: a node estimates a transfer of
-	// nothing below the intrinsic cost of one that carries value.
+	// Estimated before the nonce is reserved, so a failure does not burn one. The
+	// value must be included, or the estimate can fall below the intrinsic gas.
 	gas, gasFeeCap, gasTipCap, err := s.calculateGas(ctx, ethereum.CallMsg{
 		From:  fromAddr,
 		To:    &toAddr,
@@ -114,8 +111,6 @@ func (s *transactionSender) sendWithNonce(
 		return fmt.Errorf("failed to make nonce, %w", err)
 	}
 
-	// Signed once per nonce, so that every attempt carries the same hash and a
-	// lost response can be settled by asking the chain about it.
 	signedTx, err := s.signTx(types.NewTx(&types.DynamicFeeTx{
 		Nonce:     nonce,
 		ChainID:   chainID,
@@ -130,33 +125,37 @@ func (s *transactionSender) sendWithNonce(
 		return fmt.Errorf("failed to sign transaction, %w", err)
 	}
 
-	return s.sendAttempts(ctx, signedTx)
+	return s.sendAttempts(ctx, fromAddr, signedTx)
 }
 
-// sendAttempts sends the same signed transaction until the node is known to hold
-// it or the attempts run out. Re-sending is safe because every attempt is byte
-// identical, so the node either takes it once or says it already has it.
-func (s *transactionSender) sendAttempts(ctx context.Context, signedTx *types.Transaction) error {
+// sendAttempts sends the same signed transaction until the node holds it, the
+// node rejects it, or the attempts run out.
+func (s *transactionSender) sendAttempts(ctx context.Context, fromAddr common.Address, signedTx *types.Transaction) error {
 	attempts := max(s.opts.retryAttempts, 1)
 
 	for attempt := 1; ; attempt++ {
 		sendErr := s.client.SendTransaction(ctx, signedTx)
-		if sendErr == nil || strings.Contains(sendErr.Error(), alreadyKnownMsg) {
+		if sendErr == nil || errorContains(sendErr, alreadyKnownMsgs) {
 			return nil
 		}
 
 		err := fmt.Errorf("failed to send transaction, %w", sendErr)
 
-		// A send whose response was lost, or which the node rejected although it
-		// kept the transaction, still leaves it with the node, so that a transfer
-		// which did land is not reported as failed. This also settles a "nonce
-		// too low" answer: the lookup finds the transaction if a previous attempt
-		// was mined, and does not if the nonce was simply stale.
-		if s.transactionKnown(ctx, signedTx.Hash()) {
+		// The node may have kept the transaction despite the error, or an earlier
+		// attempt may have been mined. A rejection is final, so the chain is asked
+		// once, unless the nonce is gone after an earlier attempt that may be it.
+		rejected := errorContains(sendErr, rejectedMsgs)
+		nonceTooLow := errorContains(sendErr, nonceTooLowMsgs)
+		poll := !rejected || (nonceTooLow && attempt > 1)
+		if s.transactionKnown(ctx, signedTx.Hash(), poll) {
 			return nil
 		}
 
-		if attempt == attempts {
+		if nonceTooLow {
+			s.resyncNonce(ctx, fromAddr)
+		}
+
+		if rejected || attempt == attempts {
 			return err
 		}
 
@@ -166,39 +165,44 @@ func (s *transactionSender) sendAttempts(ctx context.Context, signedTx *types.Tr
 	}
 }
 
-// transactionKnown reports whether the node holds the transaction, pending or
-// mined. The chain is asked repeatedly for the lookup window, because a
-// transaction the node kept despite rejecting the send, or one still on its way
-// to the node asked, is not there the instant the send returns. It runs on a
-// context of its own, because the caller's may be exactly what failed the send
-// and then the question could never be answered. Anything other than a definite
-// yes counts as unknown, so a transfer is never reported as done without the
-// chain saying so.
-func (s *transactionSender) transactionKnown(ctx context.Context, hash common.Hash) bool {
+// transactionKnown reports whether the chain holds the transaction, pending or
+// mined. With poll set, it keeps asking for the lookup window. The first query
+// runs even if ctx is done, since a send cut short by ctx may still have landed;
+// after that, cancelling ctx stops the lookup.
+func (s *transactionSender) transactionKnown(ctx context.Context, hash common.Hash, poll bool) bool {
 	timeout, interval := s.opts.lookupTimeout, s.opts.lookupInterval
-	once := timeout <= 0 || interval <= 0
-
 	if timeout <= 0 {
 		timeout = defaultLookupTimeout
 	}
 
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
+	known := func() bool {
+		tx, _, err := s.client.TransactionByHash(lookupCtx, hash)
+		return err == nil && tx != nil
+	}
+
+	if known() {
+		return true
+	}
+
+	if !poll || interval <= 0 {
+		return false
+	}
+
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+
 	for {
-		tx, _, err := s.client.TransactionByHash(ctx, hash)
-		if err == nil && tx != nil {
-			return true
-		}
-
-		if once {
-			return false
-		}
-
 		select {
-		case <-time.After(s.opts.lookupInterval):
-		case <-ctx.Done():
+		case <-time.After(interval):
+		case <-lookupCtx.Done():
 			return false
+		}
+
+		if known() {
+			return true
 		}
 	}
 }
@@ -306,6 +310,20 @@ func (s *transactionSender) reserveNonce(ctx context.Context, addr common.Addres
 	return nonce, nil
 }
 
+// resyncNonce moves the next nonce up to the node's pending nonce. It never
+// moves it back, so a reserved nonce is not handed out twice.
+func (s *transactionSender) resyncNonce(ctx context.Context, addr common.Address) {
+	s.nonceLock.Lock()
+	defer s.nonceLock.Unlock()
+
+	nonce, err := s.client.PendingNonceAt(ctx, addr)
+	if err != nil {
+		return
+	}
+
+	s.nonceNext = max(s.nonceNext, nonce)
+}
+
 func (s *transactionSender) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
 	privateKey, err := s.key.PrivateECDSA()
 	if err != nil {
@@ -318,4 +336,12 @@ func (s *transactionSender) keys() (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) 
 	}
 
 	return privateKey, publicKeyECDSA, nil
+}
+
+func errorContains(err error, msgs []string) bool {
+	text := strings.ToLower(err.Error())
+
+	return slices.ContainsFunc(msgs, func(msg string) bool {
+		return strings.Contains(text, msg)
+	})
 }
