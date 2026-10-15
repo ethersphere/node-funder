@@ -46,7 +46,7 @@ type Wallet struct {
 type Option func(*options)
 
 type options struct {
-	retryAttempts  int
+	retries        int
 	retryDelay     time.Duration
 	lookupTimeout  time.Duration
 	lookupInterval time.Duration
@@ -57,13 +57,13 @@ const (
 	defaultLookupInterval = time.Second
 )
 
-// WithRetry sets how many times a failed send is attempted in total, waiting
-// delay between attempts. Values below 1 mean a single attempt, the default.
+// WithRetry sets how many times a failed send is retried, waiting delay between
+// attempts. The default is 0, which sends once; negative values count as 0.
 // Every attempt re-sends the same signed transaction, so at most one can be
 // mined. A transaction the node rejected is not retried.
-func WithRetry(attempts int, delay time.Duration) Option {
+func WithRetry(retries int, delay time.Duration) Option {
 	return func(o *options) {
-		o.retryAttempts = attempts
+		o.retries = retries
 		o.retryDelay = delay
 	}
 }
@@ -82,7 +82,6 @@ func WithLookup(timeout, interval time.Duration) Option {
 
 func New(client BackendClient, key Key, opts ...Option) *Wallet {
 	o := &options{
-		retryAttempts:  1,
 		lookupTimeout:  defaultLookupTimeout,
 		lookupInterval: defaultLookupInterval,
 	}

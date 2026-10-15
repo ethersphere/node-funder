@@ -26,10 +26,10 @@ func main() {
 	cfg := funder.Config{}
 
 	var (
-		logLevel      string
-		retryAttempts int
-		retryDelay    time.Duration
-		logger        logging.Logger
+		logLevel   string
+		retries    int
+		retryDelay time.Duration
+		logger     logging.Logger
 	)
 
 	rootCmd := &cobra.Command{
@@ -51,7 +51,7 @@ func main() {
 		Use:   "fund",
 		Short: "fund (top up) bee node wallets",
 		Run: func(cmd *cobra.Command, args []string) {
-			doFund(cfg, logger, retryAttempts, retryDelay)
+			doFund(cfg, logger, retries, retryDelay)
 		},
 	}
 
@@ -61,8 +61,8 @@ func main() {
 	fundCmd.PersistentFlags().StringVar(&cfg.WalletKey, "walletKey", "", "wallet key")
 	fundCmd.PersistentFlags().Float64Var(&cfg.MinAmounts.NativeCoin, "minNative", 0, "specifies min amount of chain native coins (DAI) nodes should have")
 	fundCmd.PersistentFlags().Float64Var(&cfg.MinAmounts.SwarmToken, "minSwarm", 0, "specifies min amount of swarm tokens (BZZ) nodes should have")
-	fundCmd.PersistentFlags().IntVar(&retryAttempts, "retryAttempts", 1, "number of attempts to send a transaction whose send failed")
-	fundCmd.PersistentFlags().DurationVar(&retryDelay, "retryDelay", 5*time.Second, "delay between send attempts")
+	fundCmd.PersistentFlags().IntVar(&retries, "retries", 0, "number of times to retry a failed transaction send")
+	fundCmd.PersistentFlags().DurationVar(&retryDelay, "retryDelay", 5*time.Second, "delay between send retries")
 
 	stakeCmd := &cobra.Command{
 		Use:   "stake",
@@ -81,7 +81,7 @@ func main() {
 	}
 }
 
-func doFund(cfg funder.Config, logger logging.Logger, retryAttempts int, retryDelay time.Duration) {
+func doFund(cfg funder.Config, logger logging.Logger, retries int, retryDelay time.Duration) {
 	ctx := context.Background()
 
 	if cfg.Namespace == "" && len(cfg.Addresses) == 0 {
@@ -99,7 +99,7 @@ func doFund(cfg funder.Config, logger logging.Logger, retryAttempts int, retryDe
 		return
 	}
 
-	walletOpts := funder.WithWalletOptions(wallet.WithRetry(retryAttempts, retryDelay))
+	walletOpts := funder.WithWalletOptions(wallet.WithRetry(retries, retryDelay))
 
 	if err := funder.Fund(ctx, cfg, nil, nil, funder.WithLoggerOption(logger), walletOpts); err != nil {
 		logger.Fatalf("error while funding: %v", err)

@@ -51,6 +51,7 @@ type transactionSender struct {
 	nonceLock sync.Mutex
 	nonceNext uint64
 	nonceInit bool
+	nonceFree []uint64 // released nonces no node holds, sorted
 }
 
 func newTransactionSender(client BackendClient, key Key, opts *options) TransactionSender {
@@ -83,9 +84,9 @@ func (s *transactionSender) Send(
 }
 
 // sendWithNonce signs the transaction once on a newly reserved nonce and sends
-// it. The nonce is never handed back: a failed send cannot prove the node did
-// not keep the transaction, and putting a different one on the same nonce could
-// leave an address unfunded.
+// it. The nonce is handed back only when the first send is rejected outright:
+// any other failure cannot prove the node did not keep the transaction, and
+// putting a different one on the same nonce could leave an address unfunded.
 func (s *transactionSender) sendWithNonce(
 	ctx context.Context,
 	chainID *big.Int,
@@ -131,7 +132,7 @@ func (s *transactionSender) sendWithNonce(
 // sendAttempts sends the same signed transaction until the node holds it, the
 // node rejects it, or the attempts run out.
 func (s *transactionSender) sendAttempts(ctx context.Context, fromAddr common.Address, signedTx *types.Transaction) error {
-	attempts := max(s.opts.retryAttempts, 1)
+	attempts := max(s.opts.retries, 0) + 1
 
 	for attempt := 1; ; attempt++ {
 		sendErr := s.client.SendTransaction(ctx, signedTx)
@@ -151,8 +152,13 @@ func (s *transactionSender) sendAttempts(ctx context.Context, fromAddr common.Ad
 			return nil
 		}
 
-		if nonceTooLow {
+		switch {
+		case nonceTooLow:
 			s.resyncNonce(ctx, fromAddr)
+		case rejected && attempt == 1:
+			// Only a rejection of the first send proves that no node holds the
+			// transaction, so its nonce can go to the next transfer.
+			s.releaseNonce(signedTx.Nonce())
 		}
 
 		if rejected || attempt == attempts {
@@ -304,10 +310,28 @@ func (s *transactionSender) reserveNonce(ctx context.Context, addr common.Addres
 		s.nonceInit = true
 	}
 
+	if len(s.nonceFree) > 0 {
+		nonce := s.nonceFree[0]
+		s.nonceFree = s.nonceFree[1:]
+
+		return nonce, nil
+	}
+
 	nonce := s.nonceNext
 	s.nonceNext++
 
 	return nonce, nil
+}
+
+// releaseNonce hands back a nonce that no node holds. The next reservation takes
+// it first, which fills the gap that transfers on later nonces wait behind.
+func (s *transactionSender) releaseNonce(nonce uint64) {
+	s.nonceLock.Lock()
+	defer s.nonceLock.Unlock()
+
+	if i, found := slices.BinarySearch(s.nonceFree, nonce); !found {
+		s.nonceFree = slices.Insert(s.nonceFree, i, nonce)
+	}
 }
 
 // resyncNonce moves the next nonce up to the node's pending nonce. It never

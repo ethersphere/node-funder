@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func Test_Send_RetriesWithSameNonce(t *testing.T) {
 	c := newScriptedClient()
 	c.sendErrs = []error{errSendFailed, errSendFailed}
 
-	w := newWallet(t, c, wallet.WithRetry(3, 0))
+	w := newWallet(t, c, wallet.WithRetry(2, 0))
 
 	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
 	assert.Equal(t, []uint64{startNonce, startNonce, startNonce}, c.sentNonces())
@@ -55,19 +56,18 @@ func Test_Send_RetriesWithSameNonce(t *testing.T) {
 	assert.Equal(t, []common.Hash{hashes[0], hashes[0], hashes[0]}, hashes)
 }
 
-// Test_Send_AttemptsBelowOneSendOnce checks that an attempt count below one
-// still sends once.
-func Test_Send_AttemptsBelowOneSendOnce(t *testing.T) {
+// Test_Send_NoRetriesSendOnce checks that zero or negative retries send once.
+func Test_Send_NoRetriesSendOnce(t *testing.T) {
 	t.Parallel()
 
-	for _, attempts := range []int{0, -1} {
-		t.Run(fmt.Sprintf("attempts=%d", attempts), func(t *testing.T) {
+	for _, retries := range []int{0, -1} {
+		t.Run(fmt.Sprintf("retries=%d", retries), func(t *testing.T) {
 			t.Parallel()
 
 			c := newScriptedClient()
 			c.sendErr = errSendFailed
 
-			w := newWallet(t, c, wallet.WithRetry(attempts, 0))
+			w := newWallet(t, c, wallet.WithRetry(retries, 0))
 
 			require.Error(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
 			assert.Equal(t, []uint64{startNonce}, c.sentNonces())
@@ -83,7 +83,7 @@ func Test_Send_GasFailureDoesNotConsumeNonce(t *testing.T) {
 	c := newScriptedClient()
 	c.gasFailures = -1
 
-	w := newWallet(t, c, wallet.WithRetry(2, 0))
+	w := newWallet(t, c, wallet.WithRetry(1, 0))
 	addr := common.HexToAddress(testAddress)
 
 	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
@@ -104,7 +104,7 @@ func Test_Send_AcceptedDespiteSendError(t *testing.T) {
 	c.sendErr = errSendFailed
 	c.accepted = true
 
-	w := newWallet(t, c, wallet.WithRetry(2, 0))
+	w := newWallet(t, c, wallet.WithRetry(1, 0))
 	addr := common.HexToAddress(testAddress)
 
 	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
@@ -198,7 +198,7 @@ func Test_Send_RejectedIsNotRetried(t *testing.T) {
 			c := newScriptedClient()
 			c.sendErr = errors.New(msg)
 
-			w := newWallet(t, c, wallet.WithRetry(3, 0), wallet.WithLookup(time.Minute, time.Millisecond))
+			w := newWallet(t, c, wallet.WithRetry(2, 0), wallet.WithLookup(time.Minute, time.Millisecond))
 
 			require.Error(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
 			assert.Len(t, c.sentNonces(), 1)
@@ -216,10 +216,79 @@ func Test_Send_NonceTooLowAfterRetryPolls(t *testing.T) {
 	c.sendErrs = []error{errSendFailed, errors.New("nonce too low")}
 	c.knownAfterSends = 2
 
-	w := newWallet(t, c, wallet.WithRetry(2, 0))
+	w := newWallet(t, c, wallet.WithRetry(1, 0))
 
 	require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
 	assert.Equal(t, []uint64{startNonce, startNonce}, c.sentNonces())
+}
+
+// Test_Send_RejectedReleasesNonce checks that a first send rejected outright
+// hands its nonce to the next transfer, so no gap is left.
+func Test_Send_RejectedReleasesNonce(t *testing.T) {
+	t.Parallel()
+
+	for _, msg := range []string{
+		"insufficient funds for gas * price + value",
+		"intrinsic gas too low",
+		"exceeds block gas limit",
+	} {
+		t.Run(msg, func(t *testing.T) {
+			t.Parallel()
+
+			c := newScriptedClient()
+			c.sendErrs = []error{errors.New(msg)}
+
+			w := newWallet(t, c)
+			addr := common.HexToAddress(testAddress)
+
+			require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+			require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+			require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+			assert.Equal(t, []uint64{startNonce, startNonce, startNonce + 1}, c.sentNonces())
+		})
+	}
+}
+
+// Test_Send_RejectedRetryKeepsNonce checks that a rejection after an earlier
+// attempt does not release the nonce, since a node may hold that attempt.
+func Test_Send_RejectedRetryKeepsNonce(t *testing.T) {
+	t.Parallel()
+
+	c := newScriptedClient()
+	c.sendErrs = []error{errSendFailed, errors.New("insufficient funds for gas * price + value")}
+
+	w := newWallet(t, c, wallet.WithRetry(1, 0))
+	addr := common.HexToAddress(testAddress)
+
+	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	assert.Equal(t, []uint64{startNonce, startNonce, startNonce + 1}, c.sentNonces())
+}
+
+// Test_Send_ReleasedNonceFillsGap checks that a nonce released while a later
+// nonce is in flight goes to the next transfer, before any new nonce.
+func Test_Send_ReleasedNonceFillsGap(t *testing.T) {
+	t.Parallel()
+
+	c := newScriptedClient()
+	// The second transfer runs inside the first send, so it takes the first error.
+	c.sendErrs = []error{nil, errors.New("insufficient funds for gas * price + value")}
+
+	w := newWallet(t, c)
+	addr := common.HexToAddress(testAddress)
+
+	var started atomic.Bool
+
+	c.onSend = func(uint64) {
+		if started.CompareAndSwap(false, true) {
+			assert.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+		}
+	}
+
+	require.Error(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	require.NoError(t, w.TransferNative(context.Background(), addr, big.NewInt(1)))
+	assert.Equal(t, []uint64{startNonce, startNonce + 1, startNonce, startNonce + 2}, c.sentNonces())
 }
 
 // Test_Send_ConcurrentFailuresNeverShareNonce checks that concurrent transfers
@@ -269,7 +338,7 @@ func Test_Send_LandedTransactionSurvivesCancellation(t *testing.T) {
 	defer cancel()
 
 	c := newScriptedClient()
-	c.cancelOnSend = cancel
+	c.onSend = func(uint64) { cancel() }
 	c.sendErr = context.Canceled
 	c.accepted = true
 
@@ -287,7 +356,7 @@ func Test_Send_CancellationStopsLookup(t *testing.T) {
 	defer cancel()
 
 	c := newScriptedClient()
-	c.cancelOnSend = cancel
+	c.onSend = func(uint64) { cancel() }
 	c.sendErr = errSendFailed
 
 	w := newWallet(t, c, wallet.WithLookup(time.Minute, time.Millisecond))
@@ -312,7 +381,7 @@ func Test_Send_AlreadyKnownCountsAsSent(t *testing.T) {
 			c := newScriptedClient()
 			c.sendErrs = []error{errSendFailed, errors.New(msg)}
 
-			w := newWallet(t, c, wallet.WithRetry(2, 0))
+			w := newWallet(t, c, wallet.WithRetry(1, 0))
 
 			require.NoError(t, w.TransferNative(context.Background(), common.HexToAddress(testAddress), big.NewInt(1)))
 			assert.Equal(t, []uint64{startNonce, startNonce}, c.sentNonces())
@@ -425,7 +494,7 @@ type scriptedClient struct {
 	knownAfterSends int
 	lookupsAfter    int
 	lookups         int
-	cancelOnSend    func()
+	onSend          func(nonce uint64) // runs during the send, outside the lock
 	nonces          []uint64
 	hashes          []common.Hash
 	gas             []uint64
@@ -519,10 +588,14 @@ func (c *scriptedClient) SendTransaction(_ context.Context, tx *types.Transactio
 	c.nonces = append(c.nonces, tx.Nonce())
 	c.hashes = append(c.hashes, tx.Hash())
 	c.gas = append(c.gas, tx.Gas())
+	onSend := c.onSend
+	c.mu.Unlock()
 
-	if c.cancelOnSend != nil {
-		c.cancelOnSend()
+	if onSend != nil {
+		onSend(tx.Nonce())
 	}
+
+	c.mu.Lock()
 
 	if len(c.sendErrs) > 0 {
 		err := c.sendErrs[0]
